@@ -1,0 +1,122 @@
+﻿@using MyM365Agent2.Common.Interface
+@using MyM365Agent2.Common.Models
+@inject IApprovalConnector Connector
+
+<div style="margin-top: 40px;">
+    <h5>Pending Approvals</h5>
+
+    <div class="form-floating mb-3" style="width:30%;min-width:300px">
+        <input type="text" class="form-control" placeholder="" @oninput="OnFilterChanged" />
+        <label>Filter by requestor</label>
+    </div>
+
+    @if (isLoading)
+    {
+        <p><em>Loading approvals...</em></p>
+    }
+    else if (!filteredItems.Any())
+    {
+        <p>No pending approvals.</p>
+    }
+    else
+    {
+        <table class="table">
+            <thead>
+                <tr>
+                    @foreach (var col in columns)
+                    {
+                        <th>
+                            <button class="btn btn-link p-0" @onclick="() => SortBy(col)">
+                                @col.Title @if (sortColumn == col) {
+                                @(ascending ? "↑" : "↓")
+                            }
+                        </button>
+                    </th>
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in filteredItems)
+            {
+                <tr>
+                    <td>@item.Title</td>
+                    <td>@item.Description</td>
+                    <td>@item.SubmittedUtc.ToLocalTime().ToString("g")</td>
+                    <td>@item.RequesterId</td>
+                    <td>
+                        <button class="btn btn-success btn-sm" @onclick="() => Act(item.Id, true)">👍</button>
+                        <button class="btn btn-danger btn-sm ms-2" @onclick="() => Act(item.Id, false)">❌</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+        }
+</div>
+
+@code {
+    private List<ApprovalItem> items = new();
+    private List<ApprovalItem> filteredItems = new();
+    private bool isLoading = true;
+
+    private List<ColumnDefinition> columns = new()
+    {
+        new ColumnDefinition("Title", x => x.Title),
+        new ColumnDefinition("Description", x => x.Description),
+        new ColumnDefinition("Submitted", x => x.SubmittedUtc),
+        new ColumnDefinition("Requester", x => x.RequesterId),
+        new ColumnDefinition("Actions", x => x.Id)
+    };
+    private ColumnDefinition? sortColumn;
+    private bool ascending;
+    private string filterText = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var managerId = "<manager-id>"; // retrieve from auth context
+        items = (await Connector.GetPendingApprovalsAsync(managerId)).ToList();
+        filteredItems = items;
+        isLoading = false;
+    }
+
+    private void OnFilterChanged(ChangeEventArgs e)
+    {
+        filterText = e.Value?.ToString() ?? string.Empty;
+        ApplyFilter();
+    }
+
+    private void ApplyFilter()
+    {
+        if (string.IsNullOrWhiteSpace(filterText)) filteredItems = items;
+        else filteredItems = items
+            .Where(x => x.RequesterId.Contains(filterText, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        ApplySort();
+    }
+
+    private void SortBy(ColumnDefinition col)
+    {
+        if (sortColumn == col) ascending = !ascending;
+        else { sortColumn = col; ascending = true; }
+        ApplySort();
+    }
+
+    private void ApplySort()
+    {
+        if (sortColumn == null) return;
+        filteredItems = ascending
+            ? filteredItems.OrderBy(sortColumn.Selector).ToList()
+            : filteredItems.OrderByDescending(sortColumn.Selector).ToList();
+    }
+
+    private async Task Act(string id, bool approve)
+    {
+        var managerId = "<manager-id>";
+        await Connector.UpdateApprovalStatusAsync(id, managerId, approve ? 1 : 2);
+        items.RemoveAll(x => x.Id == id);
+        ApplyFilter();
+    }
+
+    // Helper class for columns
+    private record ColumnDefinition(string Title, Func<ApprovalItem, object> Selector);
+}

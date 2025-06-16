@@ -1,0 +1,56 @@
+﻿@page "/approvals"
+@using MyM365Agent2.Common.Interface
+@using MyM365Agent2.Common.Models
+@inject IApprovalConnector Connector
+
+<PageTitle>My Approvals</PageTitle>
+
+<h3>Pending Approvals</h3>
+@if (items is null)
+{
+    <p><em>Loading...</em></p>
+}
+else if (!items.Any())
+{
+    <p>No pending approvals.</p>
+}
+else
+{
+    <table class="table">
+        <thead>
+            <tr><th>Title</th><th>Description</th><th>Submitted</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+            @foreach (var item in items)
+            {
+                <tr>
+                    <td>@item.Title</td>
+                    <td>@item.Description</td>
+                    <td>@item.SubmittedUtc.ToLocalTime()</td>
+                    <td>
+                        <button class="btn btn-success btn-sm" @onclick="() => Act(item.Id, true)">Approve</button>
+                        <button class="btn btn-danger btn-sm" style="margin-left:5px;" @onclick="() => Act(item.Id, false)">Reject</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<ApprovalItem>? items;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var managerId = "<manager-id>"; // get from auth context
+        items = (await Connector.GetPendingApprovalsAsync(managerId)).ToList();
+    }
+
+    private async Task Act(string id, bool approve)
+    {
+        var managerId = "<manager-id>"; // get from auth context
+        await Connector.UpdateApprovalStatusAsync(id, managerId, approve ? 1 : 2);
+        items = (await Connector.GetPendingApprovalsAsync(managerId)).ToList();
+        StateHasChanged();
+    }
+}

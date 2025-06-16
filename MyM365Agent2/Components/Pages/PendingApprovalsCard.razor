@@ -1,0 +1,47 @@
+﻿@using MyM365Agent2.Common.Interface
+@inject IApprovalConnector Connector
+
+<FluentCard style="height: max-content; margin: 0.5em 0; max-width: 300px;">
+    @if (isLoading)
+    {
+        <div style="padding:1em;text-align:center;">
+            <FluentProgressRing />
+        </div>
+    }
+    else
+    {
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:1em;">
+            <img src="@ApprovalLogoUri" alt="Logo" style="width:64px;height:64px;border-radius:32px;" />
+            <div style="text-align:center;">
+                <h2>@pendingApprovals</h2>
+                <p>Pending Approvals</p>
+            </div>
+        </div>
+    }
+</FluentCard>
+
+@code {
+    [Parameter]
+    public string ApprovalLogoUri { get; set; } = string.Empty;
+
+    private int pendingApprovals;
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var managerId = "<manager-id>"; // TODO: retrieve from auth
+        try
+        {
+            var items = await Connector.GetPendingApprovalsAsync(managerId);
+            pendingApprovals = items.Count();
+        }
+        catch
+        {
+            pendingApprovals = 0;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}
