@@ -9,23 +9,22 @@
 <div class="mb-3">
     <div class="btn-group" role="group">
         <button class="btn @(currentFilter == "" ? "btn-primary" : "btn-outline-primary")"
-                @onclick="() => FilterByState(" ")">
+                @onclick='() => FilterByState("")'>
             All
         </button>
         <button class="btn @(currentFilter == "success" ? "btn-success" : "btn-outline-success")"
-                @onclick="() => FilterByState(" success")">
+                @onclick='() => FilterByState("success")'>
             Success
         </button>
         <button class="btn @(currentFilter == "failure" ? "btn-danger" : "btn-outline-danger")"
-                @onclick="() => FilterByState(" failure")">
+                @onclick='() => FilterByState("failure")'>
             Failed
         </button>
         <button class="btn @(currentFilter == "pending" ? "btn-warning" : "btn-outline-warning")"
-                @onclick="() => FilterByState(" pending")">
+                @onclick='() => FilterByState("pending")'>
             Pending
         </button>
     </div>
-    @onclick="() => FilterByState("success")">
 </div>
 
 @if (isLoading)
@@ -40,24 +39,21 @@ else
         <table class="table table-hover">
             <thead>
                 <tr>
-                    <th @onclick="() => SortBy(" Repository")">
+                    <th @onclick='() => SortBy("Repository")'>
                         Repository
                         @if (sortField == "Repository")
                         {
                             <span class="oi @(sortAscending ? "oi-arrow-top" : "oi-arrow-bottom")"></span>
                         }
                     </th>
-                    <th @onclick="() => SortBy(" Environment")">
+                    <th @onclick='() => SortBy("Environment")'>
                         Environment
                         @if (sortField == "Environment")
                         {
                             <span class="oi @(sortAscending ? "oi-arrow-top" : "oi-arrow-bottom")"></span>
                         }
                     </th>
-                    <th>State</th>
-                    <th>Branch/Tag</th>
-                    <th>Creator</th>
-                    <th @onclick="() => SortBy(" CreatedAt")">
+                    <th @onclick='() => SortBy("CreatedAt")'>
                         Created
                         @if (sortField == "CreatedAt")
                         {
