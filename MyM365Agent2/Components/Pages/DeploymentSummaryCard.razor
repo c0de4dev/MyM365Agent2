@@ -1,0 +1,28 @@
+﻿@using MyM365Agent2.Common.Models
+@using MyM365Agent2.Services
+
+<div class="card @CardClass">
+    <div class="card-body">
+        <h5 class="card-title">@Title</h5>
+        <p class="card-text">
+            @if (ShowPercentage && Total > 0)
+            {
+                <span class="display-6">@((Value * 100 / Total))%</span>
+                <br />
+                <small>@Value of @Total</small>
+            }
+            else
+            {
+                <span class="display-6">@Value</span>
+            }
+        </p>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public int Value { get; set; }
+    [Parameter] public int Total { get; set; }
+    [Parameter] public bool ShowPercentage { get; set; } = false;
+    [Parameter] public string CardClass { get; set; } = "text-white bg-primary";
+}

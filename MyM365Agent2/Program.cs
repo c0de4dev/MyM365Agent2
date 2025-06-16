@@ -1,9 +1,12 @@
+using Microsoft.FluentUI.AspNetCore.Components;
 using MyM365Agent2;
 using MyM365Agent2.Components;
 using MyM365Agent2.Interop.TeamsSDK;
-using Microsoft.FluentUI.AspNetCore.Components;
+using MyM365Agent2.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddScoped<IAzureTableStorageService, AzureTableStorageService>();
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();

@@ -1,0 +1,181 @@
+﻿@page "/deployments"
+@using MyM365Agent2.Common.Models
+@using MyM365Agent2.Services
+@inject IAzureTableStorageService StorageService
+@inject NavigationManager Navigation
+
+<h3>GitHub Deployments</h3>
+
+<div class="mb-3">
+    <div class="btn-group" role="group">
+        <button class="btn @(currentFilter == "" ? "btn-primary" : "btn-outline-primary")"
+                @onclick="() => FilterByState(" ")">
+            All
+        </button>
+        <button class="btn @(currentFilter == "success" ? "btn-success" : "btn-outline-success")"
+                @onclick="() => FilterByState(" success")">
+            Success
+        </button>
+        <button class="btn @(currentFilter == "failure" ? "btn-danger" : "btn-outline-danger")"
+                @onclick="() => FilterByState(" failure")">
+            Failed
+        </button>
+        <button class="btn @(currentFilter == "pending" ? "btn-warning" : "btn-outline-warning")"
+                @onclick="() => FilterByState(" pending")">
+            Pending
+        </button>
+    </div>
+    @onclick="() => FilterByState("success")">
+</div>
+
+@if (isLoading)
+{
+    <div class="spinner-border" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th @onclick="() => SortBy(" Repository")">
+                        Repository
+                        @if (sortField == "Repository")
+                        {
+                            <span class="oi @(sortAscending ? "oi-arrow-top" : "oi-arrow-bottom")"></span>
+                        }
+                    </th>
+                    <th @onclick="() => SortBy(" Environment")">
+                        Environment
+                        @if (sortField == "Environment")
+                        {
+                            <span class="oi @(sortAscending ? "oi-arrow-top" : "oi-arrow-bottom")"></span>
+                        }
+                    </th>
+                    <th>State</th>
+                    <th>Branch/Tag</th>
+                    <th>Creator</th>
+                    <th @onclick="() => SortBy(" CreatedAt")">
+                        Created
+                        @if (sortField == "CreatedAt")
+                        {
+                            <span class="oi @(sortAscending ? "oi-arrow-top" : "oi-arrow-bottom")"></span>
+                        }
+                    </th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var deployment in sortedDeployments)
+                {
+                    <tr>
+                        <td>@deployment.PartitionKey</td>
+                        <td>
+                            <span class="badge bg-info">@deployment.Environment</span>
+                        </td>
+                        <td>
+                            <span class="badge @GetStateClass(deployment.State)">@deployment.State</span>
+                        </td>
+                        <td>@deployment.Ref</td>
+                        <td>@deployment.CreatorLogin</td>
+                        <td>@deployment.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                        <td>
+                            <button class="btn btn-sm btn-primary"
+                                    @onclick="() => NavigateToDetails(deployment.PartitionKey, deployment.RowKey)">
+                                Details
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<DeploymentState> deployments = new();
+    private List<DeploymentState> sortedDeployments = new();
+    private bool isLoading = true;
+    private string currentFilter = "";
+    private string sortField = "CreatedAt";
+    private bool sortAscending = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDeployments();
+    }
+
+    private async Task LoadDeployments()
+    {
+        isLoading = true;
+
+        if (string.IsNullOrEmpty(currentFilter))
+        {
+            deployments = await StorageService.GetDeploymentsAsync();
+        }
+        else
+        {
+            deployments = await StorageService.GetDeploymentsByStateAsync(currentFilter);
+        }
+
+        ApplySort();
+        isLoading = false;
+    }
+
+    private async Task FilterByState(string state)
+    {
+        currentFilter = state;
+        await LoadDeployments();
+    }
+
+    private void SortBy(string field)
+    {
+        if (sortField == field)
+        {
+            sortAscending = !sortAscending;
+        }
+        else
+        {
+            sortField = field;
+            sortAscending = true;
+        }
+
+        ApplySort();
+    }
+
+    private void ApplySort()
+    {
+        sortedDeployments = sortField switch
+        {
+            "Repository" => sortAscending
+                ? deployments.OrderBy(d => d.PartitionKey).ToList()
+                : deployments.OrderByDescending(d => d.PartitionKey).ToList(),
+            "Environment" => sortAscending
+                ? deployments.OrderBy(d => d.Environment).ToList()
+                : deployments.OrderByDescending(d => d.Environment).ToList(),
+            "CreatedAt" => sortAscending
+                ? deployments.OrderBy(d => d.CreatedAt).ToList()
+                : deployments.OrderByDescending(d => d.CreatedAt).ToList(),
+            _ => deployments
+        };
+    }
+
+    private string GetStateClass(string state)
+    {
+        return state.ToLower() switch
+        {
+            "success" => "bg-success",
+            "failure" => "bg-danger",
+            "error" => "bg-danger",
+            "pending" => "bg-warning",
+            _ => "bg-secondary"
+        };
+    }
+
+    private void NavigateToDetails(string repository, string deploymentId)
+    {
+        Navigation.NavigateTo($"/deployments/{repository}/{deploymentId}");
+    }
+}

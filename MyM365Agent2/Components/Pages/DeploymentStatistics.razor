@@ -1,0 +1,60 @@
+﻿@using MyM365Agent2.Common.Models
+@using MyM365Agent2.Services
+@inject IAzureTableStorageService StorageService
+
+<div class="row">
+    @if (isLoading)
+    {
+        <div class="col-12 text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading statistics...</span>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="col-md-3">
+            <div class="card text-white bg-primary mb-3">
+                <div class="card-body">
+                    <h5 class="card-title">Total</h5>
+                    <p class="card-text display-6">@statistics["total"]</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-success mb-3">
+                <div class="card-body">
+                    <h5 class="card-title">Success</h5>
+                    <p class="card-text display-6">@statistics["success"]</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-danger mb-3">
+                <div class="card-body">
+                    <h5 class="card-title">Failed</h5>
+                    <p class="card-text display-6">@statistics["failure"]</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-warning mb-3">
+                <div class="card-body">
+                    <h5 class="card-title">Pending</h5>
+                    <p class="card-text display-6">@statistics["pending"]</p>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private Dictionary<string, int> statistics = new();
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        statistics = await StorageService.GetDeploymentStatisticsAsync();
+        isLoading = false;
+    }
+}

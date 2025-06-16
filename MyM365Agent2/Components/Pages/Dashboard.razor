@@ -1,0 +1,225 @@
+﻿@page "/deployments/dashboard"
+@using MyM365Agent2.Common.Models
+@using MyM365Agent2.Services
+@using System.Timers
+@inject IAzureTableStorageService StorageService
+@inject IJSRuntime JSRuntime
+@implements IDisposable
+
+<h3>GitHub Deployment Dashboard</h3>
+
+@if (isLoading)
+{
+    <div class="spinner-border" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+}
+else
+{
+    <!-- Statistics Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card text-white bg-primary">
+                <div class="card-body">
+                    <h5 class="card-title">Total Deployments</h5>
+                    <p class="card-text display-6">@statistics["total"]</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-success">
+                <div class="card-body">
+                    <h5 class="card-title">Success Rate</h5>
+                    <p class="card-text display-6">
+                        @if (statistics["total"] > 0)
+                        {
+                            @((statistics["success"] * 100 / statistics["total"]))
+                    
+                            @:%
+                        }
+                        else
+                        {
+                            @:0%
+                        }
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-danger">
+                <div class="card-body">
+                    <h5 class="card-title">Failed</h5>
+                    <p class="card-text display-6">@statistics["failure"]</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-warning">
+                <div class="card-body">
+                    <h5 class="card-title">Pending</h5>
+                    <p class="card-text display-6">@statistics["pending"]</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Environment Statistics -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Deployments by Environment</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="environmentChart" @ref="environmentChartElement"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Repository Statistics -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Deployments by Repository</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="repositoryChart" @ref="repositoryChartElement"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Deployments -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5>Recent Deployments</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Repository</th>
+                            <th>Environment</th>
+                            <th>State</th>
+                            <th>Creator</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var deployment in recentDeployments)
+                        {
+                            <tr>
+                                <td>@deployment.PartitionKey</td>
+                                <td><span class="badge bg-info">@deployment.Environment</span></td>
+                                <td>
+                                    <span class="badge @GetStateClass(deployment.State)">@deployment.State</span>
+                                </td>
+                                <td>@deployment.CreatorLogin</td>
+                                <td>@deployment.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td>
+                                    <button class="btn btn-sm btn-primary" @onclick="() => ViewDetails(deployment)">
+                                        Details
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private Dictionary<string, int> statistics = new();
+    private List<DeploymentState> recentDeployments = new();
+    private Dictionary<string, Dictionary<string, int>> environmentStatistics = new();
+    private Dictionary<string, Dictionary<string, int>> repositoryStatistics = new();
+    private Timer refreshTimer;
+    private ElementReference environmentChartElement;
+    private ElementReference repositoryChartElement;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+
+        // Set up auto-refresh timer (60 seconds)
+        refreshTimer = new Timer(60000);
+        refreshTimer.Elapsed += async (sender, e) => await RefreshData();
+        refreshTimer.Start();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+
+        statistics = await StorageService.GetDeploymentStatisticsAsync();
+        environmentStatistics = await StorageService.GetEnvironmentStatisticsAsync();
+        repositoryStatistics = await StorageService.GetRepositoryStatisticsAsync();
+
+        var allDeployments = await StorageService.GetDeploymentsAsync();
+        recentDeployments = allDeployments.Take(10).ToList();
+
+        isLoading = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !isLoading)
+        {
+            await DrawCharts();
+        }
+    }
+
+    private async Task DrawCharts()
+    {
+        await JSRuntime.InvokeVoidAsync("drawEnvironmentChart",
+            environmentChartElement,
+            environmentStatistics.Keys.ToArray(),
+            environmentStatistics.Values.Select(v => v["success"]).ToArray(),
+            environmentStatistics.Values.Select(v => v["failure"]).ToArray(),
+            environmentStatistics.Values.Select(v => v["pending"]).ToArray());
+
+        await JSRuntime.InvokeVoidAsync("drawRepositoryChart",
+            repositoryChartElement,
+            repositoryStatistics.Keys.ToArray(),
+            repositoryStatistics.Values.Select(v => v.Values.Sum()).ToArray());
+    }
+
+    private async Task RefreshData()
+    {
+        await InvokeAsync(async () =>
+        {
+            await LoadData();
+            StateHasChanged();
+            await DrawCharts();
+        });
+    }
+
+    private string GetStateClass(string state)
+    {
+        return state.ToLower() switch
+        {
+            "success" => "bg-success",
+            "failure" => "bg-danger",
+            "error" => "bg-danger",
+            "pending" => "bg-warning",
+            _ => "bg-secondary"
+        };
+    }
+
+    private void ViewDetails(DeploymentState deployment)
+    {
+        // Navigate to details page or open modal
+        // Implementation depends on your navigation setup
+    }
+
+    public void Dispose()
+    {
+        refreshTimer?.Stop();
+        refreshTimer?.Dispose();
+    }
+}

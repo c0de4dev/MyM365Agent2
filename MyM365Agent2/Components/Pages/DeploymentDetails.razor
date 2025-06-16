@@ -1,0 +1,131 @@
+﻿@page "/deployments/{Repository}/{DeploymentId}"
+@using MyM365Agent2.Common.Models
+@using MyM365Agent2.Services
+@inject IAzureTableStorageService StorageService
+@inject NavigationManager Navigation
+
+<h3>Deployment Details</h3>
+
+@if (isLoading)
+{
+    <div class="spinner-border" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+}
+else if (deployment == null)
+{
+    <div class="alert alert-warning">
+        Deployment not found.
+    </div>
+}
+else
+{
+    <div class="card">
+        <div class="card-header">
+            <h4>@deployment.PartitionKey - @deployment.RowKey</h4>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <dl>
+                        <dt>Repository</dt>
+                        <dd>@deployment.PartitionKey</dd>
+
+                        <dt>Environment</dt>
+                        <dd><span class="badge bg-info">@deployment.Environment</span></dd>
+
+                        <dt>State</dt>
+                        <dd>
+                            <span class="badge @GetStateClass(deployment.State)">@deployment.State</span>
+                        </dd>
+
+                        <dt>Description</dt>
+                        <dd>@(deployment.Description ?? "N/A")</dd>
+
+                        <dt>Creator</dt>
+                        <dd>@deployment.CreatorLogin</dd>
+                    </dl>
+                </div>
+                <div class="col-md-6">
+                    <dl>
+                        <dt>Branch/Tag</dt>
+                        <dd>@deployment.Ref</dd>
+
+                        <dt>Commit SHA</dt>
+                        <dd><code>@deployment.Sha</code></dd>
+
+                        <dt>Created At</dt>
+                        <dd>@deployment.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</dd>
+
+                        <dt>Updated At</dt>
+                        <dd>@deployment.UpdatedAt.ToString("yyyy-MM-dd HH:mm:ss")</dd>
+
+                        <dt>Auto Merge</dt>
+                        <dd>@(deployment.AutoMerge == 1 ? "Yes" : "No")</dd>
+                    </dl>
+                </div>
+            </div>
+
+            <div class="mt-3">
+                @if (!string.IsNullOrEmpty(deployment.LogUrl))
+                {
+                    <a href="@deployment.LogUrl" target="_blank" class="btn btn-primary">View Logs</a>
+                }
+
+                @if (!string.IsNullOrEmpty(deployment.EnvironmentUrl))
+                {
+                    <a href="@deployment.EnvironmentUrl" target="_blank" class="btn btn-info">View Environment</a>
+                }
+            </div>
+
+            @if (!string.IsNullOrEmpty(deployment.Payload))
+            {
+                <div class="mt-3">
+                    <h5>Deployment Payload</h5>
+                    <pre class="bg-light p-3"><code>@deployment.Payload</code></pre>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="mt-3">
+        <button class="btn btn-secondary" @onclick="NavigateBack">Back to List</button>
+    </div>
+}
+
+@code {
+    [Parameter] public string Repository { get; set; }
+    [Parameter] public string DeploymentId { get; set; }
+
+    private DeploymentState deployment;
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDeployment();
+    }
+
+    private async Task LoadDeployment()
+    {
+        isLoading = true;
+        deployment = await StorageService.GetDeploymentAsync(Repository, DeploymentId);
+        isLoading = false;
+    }
+
+    private string GetStateClass(string state)
+    {
+        return state.ToLower() switch
+        {
+            "success" => "bg-success",
+            "failure" => "bg-danger",
+            "error" => "bg-danger",
+            "pending" => "bg-warning",
+            _ => "bg-secondary"
+        };
+    }
+
+    private void NavigateBack()
+    {
+        Navigation.NavigateTo("/deployments");
+    }
+}
