@@ -6,7 +6,7 @@ env/.env.local
 appsettings.Development.json
 .deployment
 appsettings.Playground.json
-
+appsettings.json
 # User-specific files
 *.user
 
