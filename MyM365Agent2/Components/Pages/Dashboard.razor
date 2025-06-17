@@ -181,7 +181,7 @@ else
             environmentStatistics.Keys.ToArray(),
             environmentStatistics.Values.Select(v => v["success"]).ToArray(),
             environmentStatistics.Values.Select(v => v["failure"]).ToArray(),
-            environmentStatistics.Values.Select(v => v["pending"]).ToArray());
+            environmentStatistics.Values.Select(v => v["pending"] + v.GetValueOrDefault("in_progress", 0)).ToArray());
 
         await JSRuntime.InvokeVoidAsync("drawRepositoryChart",
             repositoryChartElement,
@@ -201,12 +201,19 @@ else
 
     private string GetStateClass(string state)
     {
+        if (string.IsNullOrEmpty(state))
+            return "bg-secondary";
+
         return state.ToLower() switch
         {
             "success" => "bg-success",
+            "completed" => "bg-success",
             "failure" => "bg-danger",
+            "failed" => "bg-danger",
             "error" => "bg-danger",
             "pending" => "bg-warning",
+            "queued" => "bg-warning",
+            "in_progress" => "bg-info",
             _ => "bg-secondary"
         };
     }

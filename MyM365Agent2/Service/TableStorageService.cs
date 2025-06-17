@@ -17,7 +17,6 @@ namespace MyM365Agent2.Services
         Task<Dictionary<string, Dictionary<string, int>>> GetEnvironmentStatisticsAsync();
         Task<Dictionary<string, Dictionary<string, int>>> GetRepositoryStatisticsAsync();
     }
-
     public class AzureTableStorageService : IAzureTableStorageService
     {
         private readonly TableClient _tableClient;
@@ -75,7 +74,7 @@ namespace MyM365Agent2.Services
             var deployments = new List<DeploymentState>();
 
             await foreach (var deployment in _tableClient.QueryAsync<DeploymentState>(
-                filter: $"Environment eq '{environment}'"))
+                filter: $"environment eq '{environment}'"))
             {
                 deployments.Add(deployment);
             }
@@ -87,8 +86,16 @@ namespace MyM365Agent2.Services
         {
             var deployments = new List<DeploymentState>();
 
-            await foreach (var deployment in _tableClient.QueryAsync<DeploymentState>(
-                filter: $"State eq '{state}'"))
+            // Map UI state to actual runStatus values
+            string filterExpression = state.ToLower() switch
+            {
+                "success" => "runStatus eq 'success' or runStatus eq 'completed'",
+                "failure" => "runStatus eq 'failure' or runStatus eq 'failed'",
+                "pending" => "runStatus eq 'pending' or runStatus eq 'queued'",
+                _ => $"runStatus eq '{state}'"
+            };
+
+            await foreach (var deployment in _tableClient.QueryAsync<DeploymentState>(filter: filterExpression))
             {
                 deployments.Add(deployment);
             }
@@ -104,15 +111,37 @@ namespace MyM365Agent2.Services
                 { "failure", 0 },
                 { "error", 0 },
                 { "pending", 0 },
+                { "in_progress", 0 },
+                { "queued", 0 },
                 { "total", 0 }
             };
 
             await foreach (var deployment in _tableClient.QueryAsync<DeploymentState>())
             {
                 statistics["total"]++;
-                if (statistics.ContainsKey(deployment.State.ToLower()))
+                var state = deployment.runStatus?.ToLower() ?? "unknown";
+
+                // Map states to our standard categories
+                if (state == "completed" || state == "success")
                 {
-                    statistics[deployment.State.ToLower()]++;
+                    statistics["success"]++;
+                }
+                else if (state == "failed" || state == "failure")
+                {
+                    statistics["failure"]++;
+                }
+                else if (state == "queued")
+                {
+                    statistics["pending"]++;
+                    statistics["queued"]++;
+                }
+                else if (state == "in_progress")
+                {
+                    statistics["in_progress"]++;
+                }
+                else if (statistics.ContainsKey(state))
+                {
+                    statistics[state]++;
                 }
             }
 
@@ -125,20 +154,41 @@ namespace MyM365Agent2.Services
 
             await foreach (var deployment in _tableClient.QueryAsync<DeploymentState>())
             {
-                if (!statistics.ContainsKey(deployment.Environment))
+                var env = deployment.environment ?? "Unknown";
+                if (!statistics.ContainsKey(env))
                 {
-                    statistics[deployment.Environment] = new Dictionary<string, int>
+                    statistics[env] = new Dictionary<string, int>
                     {
                         { "success", 0 },
                         { "failure", 0 },
                         { "error", 0 },
-                        { "pending", 0 }
+                        { "pending", 0 },
+                        { "in_progress", 0 }
                     };
                 }
 
-                if (statistics[deployment.Environment].ContainsKey(deployment.State.ToLower()))
+                var state = deployment.runStatus?.ToLower() ?? "unknown";
+
+                // Map states to our standard categories
+                if (state == "completed" || state == "success")
                 {
-                    statistics[deployment.Environment][deployment.State.ToLower()]++;
+                    statistics[env]["success"]++;
+                }
+                else if (state == "failed" || state == "failure")
+                {
+                    statistics[env]["failure"]++;
+                }
+                else if (state == "queued")
+                {
+                    statistics[env]["pending"]++;
+                }
+                else if (state == "in_progress")
+                {
+                    statistics[env]["in_progress"]++;
+                }
+                else if (statistics[env].ContainsKey(state))
+                {
+                    statistics[env][state]++;
                 }
             }
 
@@ -151,20 +201,41 @@ namespace MyM365Agent2.Services
 
             await foreach (var deployment in _tableClient.QueryAsync<DeploymentState>())
             {
-                if (!statistics.ContainsKey(deployment.PartitionKey))
+                var repo = deployment.PartitionKey ?? "Unknown";
+                if (!statistics.ContainsKey(repo))
                 {
-                    statistics[deployment.PartitionKey] = new Dictionary<string, int>
+                    statistics[repo] = new Dictionary<string, int>
                     {
                         { "success", 0 },
                         { "failure", 0 },
                         { "error", 0 },
-                        { "pending", 0 }
+                        { "pending", 0 },
+                        { "in_progress", 0 }
                     };
                 }
 
-                if (statistics[deployment.PartitionKey].ContainsKey(deployment.State.ToLower()))
+                var state = deployment.runStatus?.ToLower() ?? "unknown";
+
+                // Map states to our standard categories
+                if (state == "completed" || state == "success")
                 {
-                    statistics[deployment.PartitionKey][deployment.State.ToLower()]++;
+                    statistics[repo]["success"]++;
+                }
+                else if (state == "failed" || state == "failure")
+                {
+                    statistics[repo]["failure"]++;
+                }
+                else if (state == "queued")
+                {
+                    statistics[repo]["pending"]++;
+                }
+                else if (state == "in_progress")
+                {
+                    statistics[repo]["in_progress"]++;
+                }
+                else if (statistics[repo].ContainsKey(state))
+                {
+                    statistics[repo][state]++;
                 }
             }
 

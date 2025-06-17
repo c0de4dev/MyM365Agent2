@@ -9,19 +9,19 @@
 <div class="mb-3">
     <div class="btn-group" role="group">
         <button class="btn @(currentFilter == "" ? "btn-primary" : "btn-outline-primary")"
-                @onclick='() => FilterByState("")'>
+                @onclick="@(() => FilterByState(""))">
             All
         </button>
         <button class="btn @(currentFilter == "success" ? "btn-success" : "btn-outline-success")"
-                @onclick='() => FilterByState("success")'>
+                @onclick="@(() => FilterByState("success"))">
             Success
         </button>
         <button class="btn @(currentFilter == "failure" ? "btn-danger" : "btn-outline-danger")"
-                @onclick='() => FilterByState("failure")'>
+                @onclick="@(() => FilterByState("failure"))">
             Failed
         </button>
         <button class="btn @(currentFilter == "pending" ? "btn-warning" : "btn-outline-warning")"
-                @onclick='() => FilterByState("pending")'>
+                @onclick="@(() => FilterByState("pending"))">
             Pending
         </button>
     </div>
@@ -74,7 +74,7 @@ else
                         <td>
                             <span class="badge @GetStateClass(deployment.State)">@deployment.State</span>
                         </td>
-                        <td>@deployment.Ref</td>
+                        <td>@deployment.Branch</td>
                         <td>@deployment.CreatorLogin</td>
                         <td>@deployment.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
                         <td>
@@ -160,12 +160,19 @@ else
 
     private string GetStateClass(string state)
     {
+        if (string.IsNullOrEmpty(state))
+            return "bg-secondary";
+
         return state.ToLower() switch
         {
             "success" => "bg-success",
+            "completed" => "bg-success",
             "failure" => "bg-danger",
+            "failed" => "bg-danger",
             "error" => "bg-danger",
             "pending" => "bg-warning",
+            "queued" => "bg-warning",
+            "in_progress" => "bg-info",
             _ => "bg-secondary"
         };
     }

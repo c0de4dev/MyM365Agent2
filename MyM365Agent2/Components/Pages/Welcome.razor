@@ -1,0 +1,166 @@
+﻿@using MyM365Agent2.Services
+@inject IAzureTableStorageService StorageService
+@inject IAzureTableStorageService StorageService
+@inject NavigationManager Navigation
+
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="jumbotron bg-light p-5 rounded-lg">
+                <h1 class="display-4">Welcome to MyM365Agent2</h1>
+                <p class="lead">GitHub Deployment Monitoring Dashboard for Microsoft 365 Applications</p>
+                <hr class="my-4" />
+                <p>Monitor and track your GitHub deployments across all environments and repositories in real-time.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Stats Overview -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <h3>Deployment Overview</h3>
+        </div>
+    </div>
+
+    <DeploymentStatistics />
+
+    <!-- Quick Actions -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <h3>Quick Actions</h3>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-4 mb-3">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <i class="oi oi-graph mb-3" style="font-size: 3em; color: #0078d4;"></i>
+                    <h5 class="card-title">Deployment Dashboard</h5>
+                    <p class="card-text">View real-time deployment statistics and trends</p>
+                    <button class="btn btn-primary" @onclick='() => Navigation.NavigateTo("/deployments/dashboard")'>
+                        Open Dashboard
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4 mb-3">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <i class="oi oi-list-rich mb-3" style="font-size: 3em; color: #107c10;"></i>
+                    <h5 class="card-title">All Deployments</h5>
+                    <p class="card-text">Browse and filter all deployment history</p>
+                    <button class="btn btn-success" @onclick='() => Navigation.NavigateTo("/deployments")'>
+                        View All
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4 mb-3">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <i class="oi oi-warning mb-3" style="font-size: 3em; color: #d83b01;"></i>
+                    <h5 class="card-title">Failed Deployments</h5>
+                    <p class="card-text">Quick access to failed deployments that need attention</p>
+                    <button class="btn btn-danger" @onclick='() => Navigation.NavigateTo("/deployments?filter=failure")'>
+                        View Failed
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Activity -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <h3>Recent Activity</h3>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (recentDeployments.Any())
+    {
+        <div class="row">
+            <div class="col-12">
+                <div class="list-group">
+                    @foreach (var deployment in recentDeployments.Take(5))
+                    {
+                        <div class="list-group-item list-group-item-action">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">@deployment.PartitionKey</h6>
+                                <small>@deployment.CreatedAt.ToString("MMM dd, HH:mm")</small>
+                            </div>
+                            <div class="d-flex w-100 justify-content-between align-items-center">
+                                <div>
+                                    <span class="badge bg-info me-2">@deployment.Environment</span>
+                                    <span class="badge @GetStateClass(deployment.State)">@deployment.State</span>
+                                    <small class="text-muted ms-2">by @deployment.CreatorLogin</small>
+                                </div>
+                                <button class="btn btn-sm btn-outline-primary"
+                                        @onclick='() => Navigation.NavigateTo($"/deployments/{deployment.PartitionKey}/{deployment.RowKey}")'>
+                                    Details
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-info">
+            No recent deployments found.
+        </div>
+    }
+</div>
+
+@code {
+    private List<MyM365Agent2.Common.Models.DeploymentState> recentDeployments = new();
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadRecentActivity();
+    }
+
+    private async Task LoadRecentActivity()
+    {
+        isLoading = true;
+        try
+        {
+            var allDeployments = await StorageService.GetDeploymentsAsync();
+            recentDeployments = allDeployments.Take(5).ToList();
+        }
+        catch (Exception ex)
+        {
+            // Handle error - you might want to log this
+            Console.WriteLine($"Error loading recent deployments: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private string GetStateClass(string state)
+    {
+        return state.ToLower() switch
+        {
+            "success" => "bg-success",
+            "failure" => "bg-danger",
+            "error" => "bg-danger",
+            "pending" => "bg-warning",
+            _ => "bg-secondary"
+        };
+    }
+}
