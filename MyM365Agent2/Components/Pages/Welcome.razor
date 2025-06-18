@@ -9,7 +9,7 @@
                 <h1 class="display-4">Welcome to MyM365Agent2</h1>
                 <p class="lead">GitHub Deployment Monitoring Dashboard for Microsoft 365 Applications</p>
                 <hr class="my-4" />
-                <p>Monitor and track your GitHub deployments across all environments and repositories in real-time.</p>
+                <p>Monitor and track your GitHub deployments across all environments and repositories in real-time. Get insights into approval workflows, deployment statistics, and team performance.</p>
                 <div class="d-flex flex-wrap gap-3 mt-4">
                     <button class="btn btn-primary btn-lg" @onclick='() => Navigation.NavigateTo("/deployments/dashboard")'>
                         <i class="oi oi-graph me-2"></i>
@@ -19,6 +19,13 @@
                         <i class="oi oi-list-rich me-2"></i>
                         Browse Deployments
                     </button>
+                    @if (pendingApprovals > 0)
+                    {
+                        <button class="btn btn-warning btn-lg" @onclick='() => Navigation.NavigateTo("/deployments?filter=pending")'>
+                            <i class="oi oi-clock me-2"></i>
+                            @pendingApprovals Pending Approvals
+                        </button>
+                    }
                 </div>
             </div>
         </div>
@@ -52,7 +59,7 @@
                         <i class="oi oi-graph" style="font-size: 3.5rem; color: var(--primary-color);"></i>
                     </div>
                     <h5 class="card-title flex-grow-1">Deployment Dashboard</h5>
-                    <p class="card-text text-muted mb-4">View real-time deployment statistics, trends, and interactive charts</p>
+                    <p class="card-text text-muted mb-4">View real-time deployment statistics, trends, and interactive charts across all environments</p>
                     <button class="btn btn-primary mt-auto" @onclick='() => Navigation.NavigateTo("/deployments/dashboard")'>
                         <i class="oi oi-external-link me-2"></i>
                         Open Dashboard
@@ -68,7 +75,7 @@
                         <i class="oi oi-list-rich" style="font-size: 3.5rem; color: var(--success-color);"></i>
                     </div>
                     <h5 class="card-title flex-grow-1">All Deployments</h5>
-                    <p class="card-text text-muted mb-4">Browse, search, and filter complete deployment history across all repositories</p>
+                    <p class="card-text text-muted mb-4">Browse, search, and filter complete deployment history across all repositories and workflows</p>
                     <button class="btn btn-success mt-auto" @onclick='() => Navigation.NavigateTo("/deployments")'>
                         <i class="oi oi-eye me-2"></i>
                         View All
@@ -84,7 +91,7 @@
                         <i class="oi oi-warning" style="font-size: 3.5rem; color: var(--danger-color);"></i>
                     </div>
                     <h5 class="card-title flex-grow-1">Failed Deployments</h5>
-                    <p class="card-text text-muted mb-4">Quick access to failed deployments that require immediate attention</p>
+                    <p class="card-text text-muted mb-4">Quick access to failed deployments that require immediate attention and troubleshooting</p>
                     <button class="btn btn-danger mt-auto" @onclick='() => Navigation.NavigateTo("/deployments?filter=failure")'>
                         <i class="oi oi-bug me-2"></i>
                         View Failed
@@ -92,6 +99,25 @@
                 </div>
             </div>
         </div>
+
+        @if (pendingApprovals > 0)
+        {
+            <div class="col-lg-4 col-md-6 mb-4">
+                <div class="card h-100 hover-lift border-warning">
+                    <div class="card-body text-center d-flex flex-column">
+                        <div class="mb-4">
+                            <i class="oi oi-person" style="font-size: 3.5rem; color: var(--warning-color);"></i>
+                        </div>
+                        <h5 class="card-title flex-grow-1">Pending Approvals</h5>
+                        <p class="card-text text-muted mb-4">@pendingApprovals deployment(s) waiting for approval from designated reviewers</p>
+                        <button class="btn btn-warning mt-auto" @onclick='() => Navigation.NavigateTo("/approvals")'>
+                            <i class="oi oi-clock me-2"></i>
+                            Review Now
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
     </div>
 
     <!-- Enhanced Recent Activity Section -->
@@ -135,7 +161,7 @@
                                             <div class="d-flex justify-content-between align-items-center mb-2">
                                                 <h6 class="mb-0 fw-bold text-primary">
                                                     <i class="oi oi-code me-2"></i>
-                                                    @deployment.PartitionKey
+                                                    @deployment.Repository
                                                 </h6>
                                                 <small class="text-muted">@deployment.CreatedAt.ToString("MMM dd, HH:mm")</small>
                                             </div>
@@ -144,26 +170,69 @@
                                                     <i class="oi oi-cloud me-1"></i>
                                                     @deployment.Environment
                                                 </span>
-                                                <span class="badge @GetStateClass(deployment.State)">
-                                                    <i class="oi oi-@GetStateIcon(deployment.State) me-1"></i>
-                                                    @deployment.State
+                                                <span class="badge @GetStateClass(deployment.StatusCategory)">
+                                                    <i class="oi oi-@GetStateIcon(deployment.StatusCategory) me-1"></i>
+                                                    @deployment.DisplayStatus
                                                 </span>
+                                                @if (!string.IsNullOrEmpty(deployment.TriggerType))
+                                                {
+                                                    <span class="badge bg-secondary">
+                                                        <i class="oi oi-flash me-1"></i>
+                                                        @deployment.TriggerType
+                                                    </span>
+                                                }
                                                 <small class="text-muted">
                                                     <i class="oi oi-person me-1"></i>
                                                     by @deployment.CreatorLogin
                                                 </small>
                                             </div>
-                                            @if (!string.IsNullOrEmpty(deployment.workflowName))
+                                            <div class="d-flex flex-wrap align-items-center gap-3">
+                                                @if (!string.IsNullOrEmpty(deployment.WorkflowDisplayName))
+                                                {
+                                                    <small class="text-muted">
+                                                        <i class="oi oi-task me-1"></i>
+                                                        @deployment.WorkflowDisplayName
+                                                    </small>
+                                                }
+                                                @if (!string.IsNullOrEmpty(deployment.Branch))
+                                                {
+                                                    <small class="text-muted">
+                                                        <i class="oi oi-fork me-1"></i>
+                                                        @deployment.Branch
+                                                    </small>
+                                                }
+                                                @if (!string.IsNullOrEmpty(deployment.RunNumberDisplay) && deployment.RunNumberDisplay != "N/A")
+                                                {
+                                                    <small class="text-muted">
+                                                        <i class="oi oi-tag me-1"></i>
+                                                        Run #@deployment.RunNumberDisplay
+                                                    </small>
+                                                }
+                                                @if (!string.IsNullOrEmpty(deployment.FormattedDuration))
+                                                {
+                                                    <small class="text-muted">
+                                                        <i class="oi oi-clock me-1"></i>
+                                                        @deployment.FormattedDuration
+                                                    </small>
+                                                }
+                                            </div>
+                                            @if (deployment.HasApprovalWorkflow)
                                             {
-                                                <small class="text-muted d-block">
-                                                    <i class="oi oi-task me-1"></i>
-                                                    @deployment.workflowName
-                                                </small>
+                                                <div class="mt-2">
+                                                    <small class="text-info">
+                                                        <i class="oi oi-shield me-1"></i>
+                                                        Approval workflow enabled
+                                                        @if (!string.IsNullOrEmpty(deployment.reviewers))
+                                                        {
+                                                            <span> • Reviewers: @deployment.reviewers</span>
+                                                        }
+                                                    </small>
+                                                </div>
                                             }
                                         </div>
                                         <div class="ms-3">
                                             <button class="btn btn-outline-primary btn-sm"
-                                                    @onclick='() => Navigation.NavigateTo($"/deployments/{deployment.PartitionKey}/{deployment.RowKey}")'>
+                                                    @onclick='() => Navigation.NavigateTo($"/deployments/{deployment.Repository}/{deployment.RowKey}")'>
                                                 <i class="oi oi-eye me-1"></i>
                                                 Details
                                             </button>
@@ -184,7 +253,7 @@
                 <div class="alert alert-info text-center">
                     <i class="oi oi-info mb-3" style="font-size: 2rem;"></i>
                     <h5>No Recent Deployments</h5>
-                    <p class="mb-0">No deployment activity found. Start by setting up your first deployment pipeline.</p>
+                    <p class="mb-0">No deployment activity found. Start by setting up your first deployment pipeline or check your data connection.</p>
                 </div>
             </div>
         </div>
@@ -194,6 +263,7 @@
 @code {
     private List<MyM365Agent2.Common.Models.DeploymentState> recentDeployments = new();
     private bool isLoading = true;
+    private int pendingApprovals = 0;
 
     protected override async Task OnInitializedAsync()
     {
@@ -205,8 +275,12 @@
         isLoading = true;
         try
         {
-            var allDeployments = await StorageService.GetDeploymentsAsync();
-            recentDeployments = allDeployments.Take(5).ToList();
+            // Load recent deployments
+            recentDeployments = await StorageService.GetRecentDeploymentsAsync(5);
+
+            // Get count of pending approvals
+            var approvals = await StorageService.GetPendingApprovalsAsync();
+            pendingApprovals = approvals.Count;
         }
         catch (Exception ex)
         {
@@ -218,26 +292,28 @@
         }
     }
 
-    private string GetStateClass(string state)
+    private string GetStateClass(string statusCategory)
     {
-        return state?.ToLower() switch
+        return statusCategory?.ToLower() switch
         {
-            "success" or "completed" => "bg-success",
-            "failure" or "failed" or "error" => "bg-danger",
-            "pending" or "queued" => "bg-warning",
+            "success" => "bg-success",
+            "failure" => "bg-danger",
+            "pending" => "bg-warning",
             "in_progress" => "bg-info",
+            "cancelled" => "bg-secondary",
             _ => "bg-secondary"
         };
     }
 
-    private string GetStateIcon(string state)
+    private string GetStateIcon(string statusCategory)
     {
-        return state?.ToLower() switch
+        return statusCategory?.ToLower() switch
         {
-            "success" or "completed" => "check",
-            "failure" or "failed" or "error" => "x",
-            "pending" or "queued" => "clock",
+            "success" => "check",
+            "failure" => "x",
+            "pending" => "clock",
             "in_progress" => "reload",
+            "cancelled" => "ban",
             _ => "question-mark"
         };
     }

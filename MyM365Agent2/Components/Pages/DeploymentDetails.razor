@@ -5,121 +5,427 @@
 @inject IAzureTableStorageService StorageService
 @inject NavigationManager Navigation
 
-<h3>Deployment Details</h3>
-
-@if (isLoading)
-{
-    <div class="spinner-border" role="status">
-        <span class="visually-hidden">Loading...</span>
-    </div>
-}
-else if (deployment == null)
-{
-    <div class="alert alert-warning">
-        Deployment not found.
-    </div>
-}
-else
-{
-    <div class="card">
-        <div class="card-header">
-            <h4>@deployment.PartitionKey - @deployment.workflowName</h4>
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item">
+                        <button class="btn btn-link p-0" @onclick='() => Navigation.NavigateTo("/")'>
+                            <i class="oi oi-home"></i> Home
+                        </button>
+                    </li>
+                    <li class="breadcrumb-item">
+                        <button class="btn btn-link p-0" @onclick='() => Navigation.NavigateTo("/deployments")'>
+                            Deployments
+                        </button>
+                    </li>
+                    <li class="breadcrumb-item active" aria-current="page">@Repository</li>
+                </ol>
+            </nav>
         </div>
-        <div class="card-body">
-            <div class="row">
-                <div class="col-md-6">
-                    <dl>
-                        <dt>Repository</dt>
-                        <dd>@deployment.PartitionKey</dd>
+    </div>
 
-                        <dt>Environment</dt>
-                        <dd><span class="badge bg-info">@deployment.environment</span></dd>
-
-                        <dt>Status</dt>
-                        <dd>
-                            <span class="badge @GetStateClass(deployment.runStatus)">@deployment.runStatus</span>
-                        </dd>
-
-                        <dt>Workflow Name</dt>
-                        <dd>@deployment.workflowName</dd>
-
-                        <dt>Creator</dt>
-                        <dd>@deployment.creator</dd>
-                    </dl>
+    @if (isLoading)
+    {
+        <div class="row">
+            <div class="col-12 text-center py-5">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Loading deployment details...</span>
                 </div>
-                <div class="col-md-6">
-                    <dl>
-                        <dt>Branch/Tag</dt>
-                        <dd>@deployment.branch</dd>
-
-                        <dt>Workflow Run ID</dt>
-                        <dd>@deployment.workflowRunId</dd>
-
-                        <dt>Deployment ID</dt>
-                        <dd>@deployment.deploymentId</dd>
-
-                        <dt>Run Started At</dt>
-                        <dd>@deployment.runStartedAt?.ToString("yyyy-MM-dd HH:mm:ss")</dd>
-
-                        <dt>Inserted At</dt>
-                        <dd>@deployment.inserted?.ToString("yyyy-MM-dd HH:mm:ss")</dd>
-                    </dl>
+                <p class="mt-3 text-muted">Loading deployment information...</p>
+            </div>
+        </div>
+    }
+    else if (deployment == null)
+    {
+        <div class="row">
+            <div class="col-12">
+                <div class="alert alert-warning">
+                    <i class="oi oi-warning me-2"></i>
+                    <strong>Deployment not found.</strong>
+                    <p class="mb-0 mt-2">The deployment you're looking for doesn't exist or may have been removed.</p>
                 </div>
             </div>
-
-            <div class="mt-3">
-                @if (!string.IsNullOrEmpty(deployment.workflowrunUrl))
-                {
-                    <a href="@deployment.workflowrunUrl" target="_blank" class="btn btn-primary">View Workflow Run</a>
-                }
-
-                @if (!string.IsNullOrEmpty(deployment.workflowUrl))
-                {
-                    <a href="@deployment.workflowUrl" target="_blank" class="btn btn-info">View Workflow File</a>
-                }
-            </div>
-
-            @if (!string.IsNullOrEmpty(deployment.statusHistory))
-            {
-                <div class="mt-3">
-                    <h5>Status History</h5>
-                    <div class="table-responsive">
-                        <table class="table table-sm">
-                            <thead>
-                                <tr>
-                                    <th>Environment</th>
-                                    <th>State</th>
-                                    <th>Updated At</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var status in ParseStatusHistory(deployment.statusHistory))
-                                {
-                                    <tr>
-                                        <td>@status.environment</td>
-                                        <td><span class="badge @GetStateClass(status.state)">@status.state</span></td>
-                                        <td>@status.updatedAt</td>
-                                        <td>
-                                            @if (!string.IsNullOrEmpty(status.logUrl))
-                                            {
-                                                <a href="@status.logUrl" target="_blank" class="btn btn-sm btn-outline-primary">Logs</a>
-                                            }
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
+        </div>
+    }
+    else
+    {
+        <!-- Header Card -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h4 class="mb-1">
+                                    <i class="oi oi-code me-2"></i>
+                                    @deployment.Repository
+                                </h4>
+                                <p class="mb-0 text-muted">@deployment.WorkflowDisplayName</p>
+                            </div>
+                            <div class="text-end">
+                                <span class="badge @GetStateClass(deployment.StatusCategory) fs-6">
+                                    <i class="oi oi-@GetStateIcon(deployment.StatusCategory) me-1"></i>
+                                    @deployment.DisplayStatus
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <div class="row">
+                                    <div class="col-sm-6 mb-3">
+                                        <strong>Environment:</strong>
+                                        <span class="badge bg-info ms-2">@deployment.Environment</span>
+                                    </div>
+                                    <div class="col-sm-6 mb-3">
+                                        <strong>Branch/Ref:</strong>
+                                        <span class="ms-2">
+                                            <i class="oi oi-fork me-1"></i>
+                                            @deployment.Branch
+                                        </span>
+                                    </div>
+                                    <div class="col-sm-6 mb-3">
+                                        <strong>Triggered By:</strong>
+                                        <span class="ms-2">
+                                            <i class="oi oi-person me-1"></i>
+                                            @deployment.CreatorLogin
+                                        </span>
+                                    </div>
+                                    <div class="col-sm-6 mb-3">
+                                        <strong>Trigger Event:</strong>
+                                        <span class="badge bg-secondary ms-2">@deployment.TriggerType</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="text-md-end">
+                                    @if (!string.IsNullOrEmpty(deployment.WorkflowRunUrl))
+                                    {
+                                        <a href="@deployment.WorkflowRunUrl" target="_blank" class="btn btn-primary me-2 mb-2">
+                                            <i class="oi oi-external-link me-1"></i>
+                                            View Run
+                                        </a>
+                                    }
+                                    @if (!string.IsNullOrEmpty(deployment.workflowUrl))
+                                    {
+                                        <a href="@deployment.workflowUrl" target="_blank" class="btn btn-outline-primary mb-2">
+                                            <i class="oi oi-code me-1"></i>
+                                            Workflow File
+                                        </a>
+                                    }
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            }
+            </div>
         </div>
-    </div>
 
-    <div class="mt-3">
-        <button class="btn btn-secondary" @onclick="NavigateBack">Back to List</button>
-    </div>
-}
+        <!-- Main Content -->
+        <div class="row">
+            <!-- Left Column - Details -->
+            <div class="col-lg-8">
+                <!-- Deployment Information -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="oi oi-info me-2"></i>
+                            Deployment Information
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <dl class="row">
+                                    <dt class="col-sm-5">Repository:</dt>
+                                    <dd class="col-sm-7">@deployment.Repository</dd>
+
+                                    <dt class="col-sm-5">Environment:</dt>
+                                    <dd class="col-sm-7">
+                                        <span class="badge bg-info">@deployment.Environment</span>
+                                    </dd>
+
+                                    <dt class="col-sm-5">Status:</dt>
+                                    <dd class="col-sm-7">
+                                        <span class="badge @GetStateClass(deployment.StatusCategory)">@deployment.DisplayStatus</span>
+                                    </dd>
+
+                                    <dt class="col-sm-5">Workflow:</dt>
+                                    <dd class="col-sm-7">@deployment.WorkflowDisplayName</dd>
+
+                                    @if (!string.IsNullOrEmpty(deployment.RunNumberDisplay) && deployment.RunNumberDisplay != "N/A")
+                                    {
+                                        <dt class="col-sm-5">Run Number:</dt>
+                                        <dd class="col-sm-7">#@deployment.RunNumberDisplay</dd>
+                                    }
+
+                                    @if (!string.IsNullOrEmpty(deployment.DeploymentIdDisplay) && deployment.DeploymentIdDisplay != "N/A")
+                                    {
+                                        <dt class="col-sm-5">Deployment ID:</dt>
+                                        <dd class="col-sm-7">@deployment.DeploymentIdDisplay</dd>
+                                    }
+                                </dl>
+                            </div>
+                            <div class="col-md-6">
+                                <dl class="row">
+                                    <dt class="col-sm-5">Created:</dt>
+                                    <dd class="col-sm-7">@deployment.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</dd>
+
+                                    <dt class="col-sm-5">Last Updated:</dt>
+                                    <dd class="col-sm-7">@deployment.UpdatedAt.ToString("yyyy-MM-dd HH:mm:ss")</dd>
+
+                                    @if (deployment.runStartedAt.HasValue)
+                                    {
+                                        <dt class="col-sm-5">Started:</dt>
+                                        <dd class="col-sm-7">@deployment.runStartedAt.Value.ToString("yyyy-MM-dd HH:mm:ss")</dd>
+                                    }
+
+                                    @if (!string.IsNullOrEmpty(deployment.FormattedDuration))
+                                    {
+                                        <dt class="col-sm-5">Duration:</dt>
+                                        <dd class="col-sm-7">
+                                            <i class="oi oi-clock me-1"></i>
+                                            @deployment.FormattedDuration
+                                        </dd>
+                                    }
+
+                                    <dt class="col-sm-5">Event Type:</dt>
+                                    <dd class="col-sm-7">@deployment.eventType</dd>
+
+                                    <dt class="col-sm-5">Trigger:</dt>
+                                    <dd class="col-sm-7">
+                                        <span class="badge bg-secondary">@deployment.TriggerType</span>
+                                    </dd>
+                                </dl>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(deployment.note))
+                        {
+                            <div class="mt-3">
+                                <h6>Notes:</h6>
+                                <div class="alert alert-light">
+                                    <i class="oi oi-note me-2"></i>
+                                    @deployment.note
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Approval Workflow (if applicable) -->
+                @if (deployment.HasApprovalWorkflow)
+                {
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                <i class="oi oi-shield me-2"></i>
+                                Approval Workflow
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                @if (!string.IsNullOrEmpty(deployment.requestor))
+                                {
+                                    <div class="col-md-6 mb-3">
+                                        <strong>Requestor:</strong>
+                                        <span class="ms-2">
+                                            <i class="oi oi-person me-1"></i>
+                                            @deployment.requestor
+                                        </span>
+                                    </div>
+                                }
+                                @if (!string.IsNullOrEmpty(deployment.reviewers))
+                                {
+                                    <div class="col-md-6 mb-3">
+                                        <strong>Reviewers:</strong>
+                                        <span class="ms-2">
+                                            <i class="oi oi-people me-1"></i>
+                                            @deployment.reviewers
+                                        </span>
+                                    </div>
+                                }
+                                @if (deployment.requestedAt.HasValue)
+                                {
+                                    <div class="col-md-6 mb-3">
+                                        <strong>Requested At:</strong>
+                                        <span class="ms-2">@deployment.requestedAt.Value.ToString("yyyy-MM-dd HH:mm:ss")</span>
+                                    </div>
+                                }
+                                @if (!string.IsNullOrEmpty(deployment.action))
+                                {
+                                    <div class="col-md-6 mb-3">
+                                        <strong>Action:</strong>
+                                        <span class="badge bg-info ms-2">@deployment.action</span>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                <!-- Status History -->
+                @if (!string.IsNullOrEmpty(deployment.statusHistory))
+                {
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                <i class="oi oi-clock me-2"></i>
+                                Status History
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Status</th>
+                                            <th>Updated At</th>
+                                            <th>Description</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var status in ParseStatusHistory(deployment.statusHistory))
+                                        {
+                                            <tr>
+                                                <td>
+                                                    <span class="badge @GetStateClassForStatus(status.state)">@status.state</span>
+                                                </td>
+                                                <td>@status.updatedAt</td>
+                                                <td>@status.description</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                <!-- Approval History -->
+                @if (!string.IsNullOrEmpty(deployment.approvalHistory))
+                {
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                <i class="oi oi-shield me-2"></i>
+                                Approval History
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Reviewer</th>
+                                            <th>Action</th>
+                                            <th>Date</th>
+                                            <th>Comments</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var approval in ParseApprovalHistory(deployment.approvalHistory))
+                                        {
+                                            <tr>
+                                                <td>
+                                                    <i class="oi oi-person me-1"></i>
+                                                    @approval.reviewer
+                                                </td>
+                                                <td>
+                                                    <span class="badge @GetApprovalActionClass(approval.action)">@approval.action</span>
+                                                </td>
+                                                <td>@approval.date</td>
+                                                <td>@approval.comments</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <!-- Right Column - Quick Actions & Metadata -->
+            <div class="col-lg-4">
+                <!-- Quick Actions -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="oi oi-dashboard me-2"></i>
+                            Quick Actions
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-grid gap-2">
+                            @if (!string.IsNullOrEmpty(deployment.WorkflowRunUrl))
+                            {
+                                <a href="@deployment.WorkflowRunUrl" target="_blank" class="btn btn-primary">
+                                    <i class="oi oi-external-link me-2"></i>
+                                    View Workflow Run
+                                </a>
+                            }
+                            @if (!string.IsNullOrEmpty(deployment.workflowUrl))
+                            {
+                                <a href="@deployment.workflowUrl" target="_blank" class="btn btn-outline-primary">
+                                    <i class="oi oi-code me-2"></i>
+                                    View Workflow File
+                                </a>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Metadata -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="oi oi-tag me-2"></i>
+                            Metadata
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <dl>
+                            <dt>Partition Key:</dt>
+                            <dd><code>@deployment.PartitionKey</code></dd>
+
+                            <dt>Row Key:</dt>
+                            <dd><code>@deployment.RowKey</code></dd>
+
+                            @if (!string.IsNullOrEmpty(deployment.WorkflowRunIdDisplay) && deployment.WorkflowRunIdDisplay != "N/A")
+                            {
+                                <dt>Workflow Run ID:</dt>
+                                <dd><code>@deployment.WorkflowRunIdDisplay</code></dd>
+                            }
+
+                            @if (!string.IsNullOrEmpty(deployment.workflowPath))
+                            {
+                                <dt>Workflow Path:</dt>
+                                <dd><code>@deployment.workflowPath</code></dd>
+                            }
+
+                            <dt>Last Modified:</dt>
+                            <dd>@deployment.Timestamp?.ToString("yyyy-MM-dd HH:mm:ss")</dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <button class="btn btn-secondary" @onclick="NavigateBack">
+                    <i class="oi oi-arrow-left me-2"></i>
+                    Back to Deployments
+                </button>
+            </div>
+        </div>
+    }
+</div>
 
 @code {
     [Parameter] public string Repository { get; set; }
@@ -136,26 +442,67 @@ else
     private async Task LoadDeployment()
     {
         isLoading = true;
-        deployment = await StorageService.GetDeploymentAsync(Repository, DeploymentId);
-        isLoading = false;
+        try
+        {
+            deployment = await StorageService.GetDeploymentAsync(Repository, DeploymentId);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading deployment: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
     }
 
-    private string GetStateClass(string state)
+    private string GetStateClass(string statusCategory)
     {
-        if (string.IsNullOrEmpty(state))
-            return "bg-secondary";
-
-        return state.ToLower() switch
+        return statusCategory?.ToLower() switch
         {
             "success" => "bg-success",
-            "completed" => "bg-success",
             "failure" => "bg-danger",
-            "failed" => "bg-danger",
-            "error" => "bg-danger",
             "pending" => "bg-warning",
-            "queued" => "bg-warning",
             "in_progress" => "bg-info",
+            "cancelled" => "bg-secondary",
             _ => "bg-secondary"
+        };
+    }
+
+    private string GetStateIcon(string statusCategory)
+    {
+        return statusCategory?.ToLower() switch
+        {
+            "success" => "check",
+            "failure" => "x",
+            "pending" => "clock",
+            "in_progress" => "reload",
+            "cancelled" => "ban",
+            _ => "question-mark"
+        };
+    }
+
+    private string GetStateClassForStatus(string status)
+    {
+        return status?.ToLower() switch
+        {
+            "success" or "completed" or "approved" => "bg-success",
+            "failure" or "failed" or "rejected" => "bg-danger",
+            "pending" or "waiting" or "queued" => "bg-warning",
+            "in_progress" or "running" => "bg-info",
+            "cancelled" or "canceled" => "bg-secondary",
+            _ => "bg-light text-dark"
+        };
+    }
+
+    private string GetApprovalActionClass(string action)
+    {
+        return action?.ToLower() switch
+        {
+            "approved" => "bg-success",
+            "rejected" or "denied" => "bg-danger",
+            "pending" or "waiting" => "bg-warning",
+            _ => "bg-info"
         };
     }
 
@@ -176,6 +523,23 @@ else
         }
     }
 
+    private List<ApprovalHistoryItem> ParseApprovalHistory(string approvalHistoryJson)
+    {
+        var result = new List<ApprovalHistoryItem>();
+        if (string.IsNullOrEmpty(approvalHistoryJson))
+            return result;
+
+        try
+        {
+            var items = JsonSerializer.Deserialize<List<ApprovalHistoryItem>>(approvalHistoryJson);
+            return items ?? result;
+        }
+        catch
+        {
+            return result;
+        }
+    }
+
     private void NavigateBack()
     {
         Navigation.NavigateTo("/deployments");
@@ -183,10 +547,16 @@ else
 
     private class StatusHistoryItem
     {
-        public string environment { get; set; }
         public string state { get; set; }
         public string description { get; set; }
         public string updatedAt { get; set; }
-        public string logUrl { get; set; }
+    }
+
+    private class ApprovalHistoryItem
+    {
+        public string reviewer { get; set; }
+        public string action { get; set; }
+        public string date { get; set; }
+        public string comments { get; set; }
     }
 }

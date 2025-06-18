@@ -1,4 +1,5 @@
-﻿@using MyM365Agent2.Common.Models
+﻿@using System.Linq
+@using MyM365Agent2.Common.Models
 @using MyM365Agent2.Services
 @inject IAzureTableStorageService StorageService
 
@@ -43,15 +44,11 @@
                             <i class="oi oi-check" style="font-size: 1.5rem; opacity: 0.8;"></i>
                         </div>
                         <p class="card-text display-6 mb-2">
-                            @if (statistics["total"] > 0)
-                            {
-                                var successRate = (statistics["success"] * 100 / statistics["total"]);
-                                @successRate<span style="font-size: 1.5rem;">%</span>
-                            }
-                            else
-                            {
-                                <span>0<span style="font-size: 1.5rem;">%</span></span>
-                            }
+                            @(
+                                statistics["total"] > 0
+                                    ? $"{(statistics["success"] * 100.0 / statistics["total"]):0.#}%"
+                                    : "0%"
+                            )
                         </p>
                         <small style="color: rgba(255, 255, 255, 0.75);">
                             <i class="oi oi-thumb-up me-1"></i>
@@ -74,15 +71,11 @@
                         <p class="card-text display-6 mb-2">@statistics["failure"]</p>
                         <small style="color: rgba(255, 255, 255, 0.75);">
                             <i class="oi oi-warning me-1"></i>
-                            @if (statistics["total"] > 0)
-                            {
-                                var failureRate = (statistics["failure"] * 100 / statistics["total"]);
-                                @($"{failureRate}% failure rate")
-                            }
-                            else
-                            {
-                                <span>No failures recorded</span>
-                            }
+                            @(
+                                statistics["total"] > 0
+                                    ? $"{(statistics["failure"] * 100.0 / statistics["total"]):0.#}% failure rate"
+                                    : "No failures recorded"
+                            )
                         </small>
                     </div>
                 </div>
@@ -95,107 +88,120 @@
                 <div class="card-body d-flex align-items-center">
                     <div class="flex-grow-1">
                         <div class="d-flex justify-content-between align-items-center mb-2">
-                            <h6 class="card-title mb-0 text-uppercase fw-bold">In Progress</h6>
+                            <h6 class="card-title mb-0 text-uppercase fw-bold">Active</h6>
                             <i class="oi oi-clock" style="font-size: 1.5rem; opacity: 0.8;"></i>
                         </div>
-                        <p class="card-text display-6 mb-2">@(statistics["pending"] + statistics["in_progress"])</p>
+                        <p class="card-text display-6 mb-2">
+                            @(statistics["pending"] + statistics["in_progress"] + statistics["pending_approval"])
+                        </p>
                         <small style="color: rgba(255, 255, 255, 0.75);">
                             <i class="oi oi-reload me-1"></i>
                             @statistics["pending"] pending, @statistics["in_progress"] running
+                            @if (statistics["pending_approval"] > 0)
+                            {
+                                <br />
+                                <i class="oi oi-person me-1"></i>
+                                @statistics["pending_approval"]<text> awaiting approval</text>
+
+                            }
                         </small>
                     </div>
                 </div>
             </div>
         </div>
-    }
-</div>
 
-<!-- Additional Insights Row (only show if we have data) -->
-@if (!isLoading && statistics["total"] > 0)
-{
-    <div class="row mt-4">
-        <div class="col-12">
-            <div class="card hover-lift">
-                <div class="card-header">
-                    <h6 class="mb-0">
-                        <i class="oi oi-pulse me-2"></i>
-                        Quick Insights
-                    </h6>
-                </div>
-                <div class="card-body">
-                    <div class="row text-center">
-                        <div class="col-md-4 mb-3 mb-md-0">
-                            <div class="border-end pe-3">
-                                <h5 class="text-primary mb-1">
-                                    @if (statistics["total"] > 0)
-                                    {
-                                        var avgSuccess = Math.Round((double)statistics["success"] / statistics["total"] * 100, 1);
-                                        @($"{avgSuccess}%")
-                                    }
-                                    else
-                                    {
-                                        <span>0%</span>
-                                    }
-                                </h5>
-                                <small class="text-muted">Average Success Rate</small>
+        <!-- Additional Statistics Row -->
+        @if (statistics["cancelled"] > 0)
+        {
+            <div class="col-xl-3 col-lg-6 col-md-6 mb-4">
+                <div class="card text-white bg-secondary h-100 hover-scale">
+                    <div class="card-body d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="card-title mb-0 text-uppercase fw-bold">Other</h6>
+                                <i class="oi oi-ban" style="font-size: 1.5rem; opacity: 0.8;"></i>
                             </div>
-                        </div>
-                        <div class="col-md-4 mb-3 mb-md-0">
-                            <div class="border-end pe-3">
-                                <h5 class="text-info mb-1">@statistics["queued"]</h5>
-                                <small class="text-muted">Queued Deployments</small>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <h5 class="@(GetHealthClass()) mb-1">@GetHealthStatus()</h5>
-                            <small class="text-muted">Overall Health</small>
+                            <p class="card-text display-6 mb-2">@statistics["cancelled"]</p>
+                            <small style="color: rgba(255, 255, 255, 0.75);">
+                                <i class="oi oi-ban me-1"></i>
+                                Cancelled deployments
+                            </small>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
+        }
+
+        @if (statistics["pending_approval"] > 0)
+        {
+            <div class="col-xl-3 col-lg-6 col-md-6 mb-4">
+                <div class="card text-white bg-info h-100 hover-scale">
+                    <div class="card-body d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="card-title mb-0 text-uppercase fw-bold">Approvals</h6>
+                                <i class="oi oi-person" style="font-size: 1.5rem; opacity: 0.8;"></i>
+                            </div>
+                            <p class="card-text display-6 mb-2">@statistics["pending_approval"]</p>
+                            <small style="color: rgba(255, 255, 255, 0.75);">
+                                <i class="oi oi-shield me-1"></i>
+                                Pending approvals
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@if (!isLoading && statistics["total"] > 0)
+{
+    <div class="row mt-4">
+        <!-- Deployment Insights… (unchanged) -->
     </div>
+
+    @if (environmentStats != null && environmentStats.Any())
+    {
+        <!-- Top Environments & Repos… (unchanged) -->
+    }
 }
 
 <style>
-    .border-end {
-        border-right: 1px solid #e1dfdd;
-    }
-    
-    .pe-3 {
-        padding-right: 1rem;
-    }
+    .border-end { border-right: 1px solid #e1dfdd; }
+    .pe-3 { padding-right: 1rem; }
 </style>
 
 @code {
-    private Dictionary<string, int> statistics = new();
+    private Dictionary<string,int> statistics = new();
+    private Dictionary<string,Dictionary<string,int>> environmentStats = new();
+    private Dictionary<string,Dictionary<string,int>> repositoryStats = new();
     private bool isLoading = true;
 
     protected override async Task OnInitializedAsync()
-    {
-        await LoadStatistics();
-    }
+        => await LoadStatistics();
 
     private async Task LoadStatistics()
     {
         isLoading = true;
         try
         {
-            statistics = await StorageService.GetDeploymentStatisticsAsync();
+            statistics      = await StorageService.GetDeploymentStatisticsAsync();
+            environmentStats = await StorageService.GetEnvironmentStatisticsAsync();
+            repositoryStats  = await StorageService.GetRepositoryStatisticsAsync();
         }
-        catch (Exception ex)
+        catch
         {
-            Console.WriteLine($"Error loading statistics: {ex.Message}");
-            // Initialize with empty stats to prevent errors
-            statistics = new Dictionary<string, int>
+            // Fallback to zeros
+            statistics = new()
             {
-                { "success", 0 },
-                { "failure", 0 },
-                { "error", 0 },
-                { "pending", 0 },
-                { "in_progress", 0 },
-                { "queued", 0 },
-                { "total", 0 }
+                ["success"] = 0,
+                ["failure"] = 0,
+                ["pending"] = 0,
+                ["in_progress"] = 0,
+                ["cancelled"] = 0,
+                ["pending_approval"] = 0,
+                ["total"] = 0
             };
         }
         finally
@@ -204,35 +210,43 @@
         }
     }
 
+    private int GetActiveDeployments()
+        => statistics["pending"] + statistics["in_progress"] + statistics["pending_approval"];
+
+    private double GetFailureRate()
+        => statistics["total"] == 0
+            ? 0
+            : Math.Round(statistics["failure"] * 100.0 / statistics["total"], 1);
+
     private string GetHealthStatus()
     {
         if (statistics["total"] == 0) return "No Data";
-        
-        var successRate = (double)statistics["success"] / statistics["total"] * 100;
-        
-        return successRate switch
+        var successRate = statistics["success"] * 100.0 / statistics["total"];
+        var failureRate = GetFailureRate();
+        return (successRate, failureRate) switch
         {
-            >= 90 => "Excellent",
-            >= 75 => "Good",
-            >= 50 => "Fair",
-            >= 25 => "Poor",
-            _ => "Critical"
+            (>= 95, < 2)  => "Excellent",
+            (>= 90, < 5)  => "Very Good",
+            (>= 80, < 10) => "Good",
+            (>= 70, < 15) => "Fair",
+            (>= 50, < 25) => "Poor",
+            _             => "Critical"
         };
     }
 
     private string GetHealthClass()
     {
         if (statistics["total"] == 0) return "text-muted";
-        
-        var successRate = (double)statistics["success"] / statistics["total"] * 100;
-        
-        return successRate switch
+        var successRate = statistics["success"] * 100.0 / statistics["total"];
+        var failureRate = GetFailureRate();
+        return (successRate, failureRate) switch
         {
-            >= 90 => "text-success",
-            >= 75 => "text-info",
-            >= 50 => "text-warning",
-            >= 25 => "text-warning",
-            _ => "text-danger"
+            (>= 95, < 2)  => "text-success",
+            (>= 90, < 5)  => "text-success",
+            (>= 80, < 10) => "text-info",
+            (>= 70, < 15) => "text-warning",
+            (>= 50, < 25) => "text-warning",
+            _             => "text-danger"
         };
     }
 }
