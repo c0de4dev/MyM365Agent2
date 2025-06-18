@@ -1,6 +1,5 @@
 ﻿@using MyM365Agent2.Services
 @inject IAzureTableStorageService StorageService
-@inject IAzureTableStorageService StorageService
 @inject NavigationManager Navigation
 
 <div class="container-fluid">
@@ -11,60 +10,83 @@
                 <p class="lead">GitHub Deployment Monitoring Dashboard for Microsoft 365 Applications</p>
                 <hr class="my-4" />
                 <p>Monitor and track your GitHub deployments across all environments and repositories in real-time.</p>
+                <div class="d-flex flex-wrap gap-3 mt-4">
+                    <button class="btn btn-primary btn-lg" @onclick='() => Navigation.NavigateTo("/deployments/dashboard")'>
+                        <i class="oi oi-graph me-2"></i>
+                        View Dashboard
+                    </button>
+                    <button class="btn btn-outline-primary btn-lg" @onclick='() => Navigation.NavigateTo("/deployments")'>
+                        <i class="oi oi-list-rich me-2"></i>
+                        Browse Deployments
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- Quick Stats Overview -->
+    <!-- Enhanced Quick Stats Overview -->
     <div class="row mt-4">
         <div class="col-12">
             <h3>Deployment Overview</h3>
         </div>
     </div>
 
-    <DeploymentStatistics />
+    <div class="row">
+        <div class="col-12">
+            <DeploymentStatistics />
+        </div>
+    </div>
 
-    <!-- Quick Actions -->
-    <div class="row mt-4">
+    <!-- Enhanced Quick Actions Grid -->
+    <div class="row mt-5">
         <div class="col-12">
             <h3>Quick Actions</h3>
         </div>
     </div>
 
     <div class="row">
-        <div class="col-md-4 mb-3">
-            <div class="card h-100">
-                <div class="card-body text-center">
-                    <i class="oi oi-graph mb-3" style="font-size: 3em; color: #0078d4;"></i>
-                    <h5 class="card-title">Deployment Dashboard</h5>
-                    <p class="card-text">View real-time deployment statistics and trends</p>
-                    <button class="btn btn-primary" @onclick='() => Navigation.NavigateTo("/deployments/dashboard")'>
+        <div class="col-lg-4 col-md-6 mb-4">
+            <div class="card h-100 hover-lift">
+                <div class="card-body text-center d-flex flex-column">
+                    <div class="mb-4">
+                        <i class="oi oi-graph" style="font-size: 3.5rem; color: var(--primary-color);"></i>
+                    </div>
+                    <h5 class="card-title flex-grow-1">Deployment Dashboard</h5>
+                    <p class="card-text text-muted mb-4">View real-time deployment statistics, trends, and interactive charts</p>
+                    <button class="btn btn-primary mt-auto" @onclick='() => Navigation.NavigateTo("/deployments/dashboard")'>
+                        <i class="oi oi-external-link me-2"></i>
                         Open Dashboard
                     </button>
                 </div>
             </div>
         </div>
 
-        <div class="col-md-4 mb-3">
-            <div class="card h-100">
-                <div class="card-body text-center">
-                    <i class="oi oi-list-rich mb-3" style="font-size: 3em; color: #107c10;"></i>
-                    <h5 class="card-title">All Deployments</h5>
-                    <p class="card-text">Browse and filter all deployment history</p>
-                    <button class="btn btn-success" @onclick='() => Navigation.NavigateTo("/deployments")'>
+        <div class="col-lg-4 col-md-6 mb-4">
+            <div class="card h-100 hover-lift">
+                <div class="card-body text-center d-flex flex-column">
+                    <div class="mb-4">
+                        <i class="oi oi-list-rich" style="font-size: 3.5rem; color: var(--success-color);"></i>
+                    </div>
+                    <h5 class="card-title flex-grow-1">All Deployments</h5>
+                    <p class="card-text text-muted mb-4">Browse, search, and filter complete deployment history across all repositories</p>
+                    <button class="btn btn-success mt-auto" @onclick='() => Navigation.NavigateTo("/deployments")'>
+                        <i class="oi oi-eye me-2"></i>
                         View All
                     </button>
                 </div>
             </div>
         </div>
 
-        <div class="col-md-4 mb-3">
-            <div class="card h-100">
-                <div class="card-body text-center">
-                    <i class="oi oi-warning mb-3" style="font-size: 3em; color: #d83b01;"></i>
-                    <h5 class="card-title">Failed Deployments</h5>
-                    <p class="card-text">Quick access to failed deployments that need attention</p>
-                    <button class="btn btn-danger" @onclick='() => Navigation.NavigateTo("/deployments?filter=failure")'>
+        <div class="col-lg-4 col-md-6 mb-4">
+            <div class="card h-100 hover-lift">
+                <div class="card-body text-center d-flex flex-column">
+                    <div class="mb-4">
+                        <i class="oi oi-warning" style="font-size: 3.5rem; color: var(--danger-color);"></i>
+                    </div>
+                    <h5 class="card-title flex-grow-1">Failed Deployments</h5>
+                    <p class="card-text text-muted mb-4">Quick access to failed deployments that require immediate attention</p>
+                    <button class="btn btn-danger mt-auto" @onclick='() => Navigation.NavigateTo("/deployments?filter=failure")'>
+                        <i class="oi oi-bug me-2"></i>
                         View Failed
                     </button>
                 </div>
@@ -72,18 +94,29 @@
         </div>
     </div>
 
-    <!-- Recent Activity -->
-    <div class="row mt-4">
+    <!-- Enhanced Recent Activity Section -->
+    <div class="row mt-5">
         <div class="col-12">
-            <h3>Recent Activity</h3>
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h3 class="mb-0">Recent Activity</h3>
+                @if (recentDeployments.Any())
+                {
+                    <button class="btn btn-outline-primary btn-sm" @onclick='() => Navigation.NavigateTo("/deployments")'>
+                        View All <i class="oi oi-arrow-right ms-1"></i>
+                    </button>
+                }
+            </div>
         </div>
     </div>
 
     @if (isLoading)
     {
-        <div class="text-center">
-            <div class="spinner-border" role="status">
-                <span class="visually-hidden">Loading...</span>
+        <div class="row">
+            <div class="col-12 text-center py-5">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Loading recent deployments...</span>
+                </div>
+                <p class="mt-3 text-muted">Loading recent activity...</p>
             </div>
         </div>
     }
@@ -91,35 +124,69 @@
     {
         <div class="row">
             <div class="col-12">
-                <div class="list-group">
-                    @foreach (var deployment in recentDeployments.Take(5))
-                    {
-                        <div class="list-group-item list-group-item-action">
-                            <div class="d-flex w-100 justify-content-between">
-                                <h6 class="mb-1">@deployment.PartitionKey</h6>
-                                <small>@deployment.CreatedAt.ToString("MMM dd, HH:mm")</small>
-                            </div>
-                            <div class="d-flex w-100 justify-content-between align-items-center">
-                                <div>
-                                    <span class="badge bg-info me-2">@deployment.Environment</span>
-                                    <span class="badge @GetStateClass(deployment.State)">@deployment.State</span>
-                                    <small class="text-muted ms-2">by @deployment.CreatorLogin</small>
+                <div class="card hover-glow">
+                    <div class="card-body p-0">
+                        <div class="list-group list-group-flush">
+                            @foreach (var deployment in recentDeployments.Take(5))
+                            {
+                                <div class="list-group-item list-group-item-action">
+                                    <div class="d-flex w-100 justify-content-between align-items-start">
+                                        <div class="flex-grow-1">
+                                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                                <h6 class="mb-0 fw-bold text-primary">
+                                                    <i class="oi oi-code me-2"></i>
+                                                    @deployment.PartitionKey
+                                                </h6>
+                                                <small class="text-muted">@deployment.CreatedAt.ToString("MMM dd, HH:mm")</small>
+                                            </div>
+                                            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                                <span class="badge bg-info">
+                                                    <i class="oi oi-cloud me-1"></i>
+                                                    @deployment.Environment
+                                                </span>
+                                                <span class="badge @GetStateClass(deployment.State)">
+                                                    <i class="oi oi-@GetStateIcon(deployment.State) me-1"></i>
+                                                    @deployment.State
+                                                </span>
+                                                <small class="text-muted">
+                                                    <i class="oi oi-person me-1"></i>
+                                                    by @deployment.CreatorLogin
+                                                </small>
+                                            </div>
+                                            @if (!string.IsNullOrEmpty(deployment.workflowName))
+                                            {
+                                                <small class="text-muted d-block">
+                                                    <i class="oi oi-task me-1"></i>
+                                                    @deployment.workflowName
+                                                </small>
+                                            }
+                                        </div>
+                                        <div class="ms-3">
+                                            <button class="btn btn-outline-primary btn-sm"
+                                                    @onclick='() => Navigation.NavigateTo($"/deployments/{deployment.PartitionKey}/{deployment.RowKey}")'>
+                                                <i class="oi oi-eye me-1"></i>
+                                                Details
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
-                                <button class="btn btn-sm btn-outline-primary"
-                                        @onclick='() => Navigation.NavigateTo($"/deployments/{deployment.PartitionKey}/{deployment.RowKey}")'>
-                                    Details
-                                </button>
-                            </div>
+                            }
                         </div>
-                    }
+                    </div>
                 </div>
             </div>
         </div>
     }
     else
     {
-        <div class="alert alert-info">
-            No recent deployments found.
+        <div class="row">
+            <div class="col-12">
+                <div class="alert alert-info text-center">
+                    <i class="oi oi-info mb-3" style="font-size: 2rem;"></i>
+                    <h5>No Recent Deployments</h5>
+                    <p class="mb-0">No deployment activity found. Start by setting up your first deployment pipeline.</p>
+                </div>
+            </div>
         </div>
     }
 </div>
@@ -143,7 +210,6 @@
         }
         catch (Exception ex)
         {
-            // Handle error - you might want to log this
             Console.WriteLine($"Error loading recent deployments: {ex.Message}");
         }
         finally
@@ -154,13 +220,25 @@
 
     private string GetStateClass(string state)
     {
-        return state.ToLower() switch
+        return state?.ToLower() switch
         {
-            "success" => "bg-success",
-            "failure" => "bg-danger",
-            "error" => "bg-danger",
-            "pending" => "bg-warning",
+            "success" or "completed" => "bg-success",
+            "failure" or "failed" or "error" => "bg-danger",
+            "pending" or "queued" => "bg-warning",
+            "in_progress" => "bg-info",
             _ => "bg-secondary"
+        };
+    }
+
+    private string GetStateIcon(string state)
+    {
+        return state?.ToLower() switch
+        {
+            "success" or "completed" => "check",
+            "failure" or "failed" or "error" => "x",
+            "pending" or "queued" => "clock",
+            "in_progress" => "reload",
+            _ => "question-mark"
         };
     }
 }
