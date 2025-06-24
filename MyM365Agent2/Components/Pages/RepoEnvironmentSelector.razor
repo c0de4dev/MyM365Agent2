@@ -1,5 +1,4 @@
-﻿@* RepoEnvironmentSelector.razor *@
-@using MyM365Agent2.Services
+﻿@using MyM365Agent2.Services
 @inject IAzureTableStorageService StorageService
 
 <div class="row mb-4">
@@ -7,23 +6,48 @@
         <div class="card">
             <div class="card-header">
                 <h6 class="mb-0">
-                    <i class="oi oi-folder me-2"></i>
+                    <i class="oi oi-folder me-2" aria-hidden="true"></i>
                     Repository Selection
                 </h6>
             </div>
             <div class="card-body">
-                <select class="form-select" @onchange="OnRepositoryChanged" value="@SelectedRepository">
+                <label for="repository-select" class="form-label visually-hidden">Select Repository</label>
+                <select id="repository-select"
+                        class="form-select @(isRepositoryLoading ? "opacity-50" : "")"
+                        @onchange="OnRepositoryChanged"
+                        value="@SelectedRepository"
+                        disabled="@isRepositoryLoading"
+                        aria-describedby="repository-help">
                     <option value="">All Repositories</option>
-                    @foreach (var repo in availableRepositories)
+                    @if (isRepositoryLoading)
                     {
-                        <option value="@repo">@repo</option>
+                        <option disabled>Loading repositories...</option>
+                    }
+                    else
+                    {
+                        @foreach (var repo in availableRepositories)
+                        {
+                            <option value="@repo">@repo (@GetRepositoryDeploymentCount(repo))</option>
+                        }
                     }
                 </select>
+
                 @if (!string.IsNullOrEmpty(SelectedRepository))
                 {
-                    <small class="text-muted mt-2 d-block">
-                        <i class="oi oi-info me-1"></i>
+                    <small id="repository-help" class="text-muted mt-2 d-block">
+                        <i class="oi oi-info me-1" aria-hidden="true"></i>
                         Showing deployments for: <strong>@SelectedRepository</strong>
+                        <button class="btn btn-link btn-sm p-0 ms-2"
+                                @onclick="ClearRepositoryFilter"
+                                aria-label="Clear repository filter">
+                            <i class="oi oi-x" aria-hidden="true"></i>
+                        </button>
+                    </small>
+                }
+                else
+                {
+                    <small id="repository-help" class="text-muted mt-2 d-block">
+                        Select a specific repository to filter deployments
                     </small>
                 }
             </div>
@@ -34,23 +58,48 @@
         <div class="card">
             <div class="card-header">
                 <h6 class="mb-0">
-                    <i class="oi oi-globe me-2"></i>
+                    <i class="oi oi-globe me-2" aria-hidden="true"></i>
                     Environment Selection
                 </h6>
             </div>
             <div class="card-body">
-                <select class="form-select" @onchange="OnEnvironmentChanged" value="@SelectedEnvironment">
+                <label for="environment-select" class="form-label visually-hidden">Select Environment</label>
+                <select id="environment-select"
+                        class="form-select @(isEnvironmentLoading ? "opacity-50" : "")"
+                        @onchange="OnEnvironmentChanged"
+                        value="@SelectedEnvironment"
+                        disabled="@isEnvironmentLoading"
+                        aria-describedby="environment-help">
                     <option value="">All Environments</option>
-                    @foreach (var env in availableEnvironments)
+                    @if (isEnvironmentLoading)
                     {
-                        <option value="@env">@env</option>
+                        <option disabled>Loading environments...</option>
+                    }
+                    else
+                    {
+                        @foreach (var env in filteredEnvironments)
+                        {
+                            <option value="@env">@env (@GetEnvironmentDeploymentCount(env))</option>
+                        }
                     }
                 </select>
+
                 @if (!string.IsNullOrEmpty(SelectedEnvironment))
                 {
-                    <small class="text-muted mt-2 d-block">
-                        <i class="oi oi-info me-1"></i>
+                    <small id="environment-help" class="text-muted mt-2 d-block">
+                        <i class="oi oi-info me-1" aria-hidden="true"></i>
                         Filtered by environment: <strong>@SelectedEnvironment</strong>
+                        <button class="btn btn-link btn-sm p-0 ms-2"
+                                @onclick="ClearEnvironmentFilter"
+                                aria-label="Clear environment filter">
+                            <i class="oi oi-x" aria-hidden="true"></i>
+                        </button>
+                    </small>
+                }
+                else
+                {
+                    <small id="environment-help" class="text-muted mt-2 d-block">
+                        Select a specific environment to filter deployments
                     </small>
                 }
             </div>
@@ -62,9 +111,9 @@
 {
     <div class="row mb-3">
         <div class="col-12">
-            <div class="alert alert-info d-flex justify-content-between align-items-center">
+            <div class="alert alert-info d-flex justify-content-between align-items-center" role="status">
                 <div>
-                    <i class="oi oi-layers me-2"></i>
+                    <i class="oi oi-layers me-2" aria-hidden="true"></i>
                     <strong>Active Filters:</strong>
                     @if (!string.IsNullOrEmpty(SelectedRepository))
                     {
@@ -74,15 +123,71 @@
                     {
                         <span class="badge bg-info me-2">Env: @SelectedEnvironment</span>
                     }
+                    <span class="badge bg-secondary">@GetFilteredCount() result(s)</span>
                 </div>
-                <button class="btn btn-sm btn-outline-secondary" @onclick="ClearFilters">
-                    <i class="oi oi-x me-1"></i>
-                    Clear Filters
+                <button class="btn btn-sm btn-outline-secondary"
+                        @onclick="ClearFilters"
+                        aria-label="Clear all filters">
+                    <i class="oi oi-x me-1" aria-hidden="true"></i>
+                    Clear All
                 </button>
             </div>
         </div>
     </div>
 }
+
+@if (errorMessage != null)
+{
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="alert alert-warning alert-dismissible fade show" role="alert">
+                <i class="oi oi-warning me-2" aria-hidden="true"></i>
+                <strong>Warning:</strong> @errorMessage
+                <button type="button" class="btn-close" @onclick="ClearError" aria-label="Close error message"></button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .opacity-50 {
+        opacity: 0.5;
+    }
+
+    .btn-link.btn-sm {
+        font-size: 0.8rem;
+        text-decoration: none;
+    }
+
+        .btn-link.btn-sm:hover {
+            text-decoration: underline;
+        }
+
+    /* Loading state animation */
+    .opacity-50 {
+        transition: opacity 0.2s ease;
+    }
+
+    /* High contrast mode support */
+    @@media (prefers-contrast: high) {
+        .form-select:disabled
+
+    {
+        border-width: 2px;
+    }
+
+    }
+
+    /* Reduced motion support */
+    @@media (prefers-reduced-motion: reduce) {
+        .opacity-50
+
+    {
+        transition: none;
+    }
+
+    }
+</style>
 
 @code {
     [Parameter] public string SelectedRepository { get; set; } = "";
@@ -93,58 +198,185 @@
 
     private List<string> availableRepositories = new();
     private List<string> availableEnvironments = new();
+    private List<string> filteredEnvironments = new();
+    private List<DeploymentState> allDeployments = new();
+
+    private bool isRepositoryLoading = true;
+    private bool isEnvironmentLoading = true;
+    private string? errorMessage = null;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadAvailableOptions();
     }
 
+    protected override async Task OnParametersSetAsync()
+    {
+        // Update filtered environments when repository changes
+        UpdateFilteredEnvironments();
+    }
+
     private async Task LoadAvailableOptions()
     {
+        isRepositoryLoading = true;
+        isEnvironmentLoading = true;
+        errorMessage = null;
+
         try
         {
-            var deployments = await StorageService.GetDeploymentsAsync();
 
-            availableRepositories = deployments
+            allDeployments = await StorageService.GetDeploymentsAsync();
+
+            availableRepositories = allDeployments
                 .Select(d => d.Repository)
                 .Where(r => !string.IsNullOrEmpty(r))
                 .Distinct()
                 .OrderBy(r => r)
                 .ToList();
 
-            availableEnvironments = deployments
+            availableEnvironments = allDeployments
+                .Select(d => d.Environment)
+                .Where(e => !string.IsNullOrEmpty(e))
+                .Distinct()
+                .OrderBy(e => e)
+                .ToList();
+
+            UpdateFilteredEnvironments();
+
+        }
+        catch (Exception ex)
+        {
+        }
+        finally
+        {
+            isRepositoryLoading = false;
+            isEnvironmentLoading = false;
+        }
+    }
+
+    private void UpdateFilteredEnvironments()
+    {
+        if (string.IsNullOrEmpty(SelectedRepository))
+        {
+            filteredEnvironments = availableEnvironments;
+        }
+        else
+        {
+            filteredEnvironments = allDeployments
+                .Where(d => string.Equals(d.Repository, SelectedRepository, StringComparison.OrdinalIgnoreCase))
                 .Select(d => d.Environment)
                 .Where(e => !string.IsNullOrEmpty(e))
                 .Distinct()
                 .OrderBy(e => e)
                 .ToList();
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error loading options: {ex.Message}");
-        }
     }
 
     private async Task OnRepositoryChanged(ChangeEventArgs e)
     {
-        SelectedRepository = e.Value?.ToString() ?? "";
-        await SelectedRepositoryChanged.InvokeAsync(SelectedRepository);
-        await OnSelectionChanged.InvokeAsync();
+        var newRepository = e.Value?.ToString() ?? "";
+
+        if (SelectedRepository != newRepository)
+        {
+            SelectedRepository = newRepository;
+            UpdateFilteredEnvironments();
+
+            // Clear environment selection if it's no longer available
+            if (!string.IsNullOrEmpty(SelectedEnvironment) && !filteredEnvironments.Contains(SelectedEnvironment))
+            {
+                SelectedEnvironment = "";
+                await SelectedEnvironmentChanged.InvokeAsync(SelectedEnvironment);
+            }
+
+            await SelectedRepositoryChanged.InvokeAsync(SelectedRepository);
+            await OnSelectionChanged.InvokeAsync();
+
+        }
     }
 
     private async Task OnEnvironmentChanged(ChangeEventArgs e)
     {
-        SelectedEnvironment = e.Value?.ToString() ?? "";
+        var newEnvironment = e.Value?.ToString() ?? "";
+
+        if (SelectedEnvironment != newEnvironment)
+        {
+            SelectedEnvironment = newEnvironment;
+            await SelectedEnvironmentChanged.InvokeAsync(SelectedEnvironment);
+            await OnSelectionChanged.InvokeAsync();
+
+        }
+    }
+
+    private async Task ClearRepositoryFilter()
+    {
+        SelectedRepository = "";
+        UpdateFilteredEnvironments();
+        await SelectedRepositoryChanged.InvokeAsync(SelectedRepository);
+        await OnSelectionChanged.InvokeAsync();
+
+    }
+
+    private async Task ClearEnvironmentFilter()
+    {
+        SelectedEnvironment = "";
         await SelectedEnvironmentChanged.InvokeAsync(SelectedEnvironment);
         await OnSelectionChanged.InvokeAsync();
+
     }
 
     private async Task ClearFilters()
     {
+        var hadFilters = !string.IsNullOrEmpty(SelectedRepository) || !string.IsNullOrEmpty(SelectedEnvironment);
+
         SelectedRepository = "";
         SelectedEnvironment = "";
+        UpdateFilteredEnvironments();
+
         await SelectedRepositoryChanged.InvokeAsync(SelectedRepository);
         await SelectedEnvironmentChanged.InvokeAsync(SelectedEnvironment);
         await OnSelectionChanged.InvokeAsync();
+
+        if (hadFilters)
+        {
+        }
+    }
+
+    private void ClearError()
+    {
+        errorMessage = null;
+    }
+
+    private int GetRepositoryDeploymentCount(string repository)
+    {
+        return allDeployments.Count(d => string.Equals(d.Repository, repository, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private int GetEnvironmentDeploymentCount(string environment)
+    {
+        var query = allDeployments.AsEnumerable();
+
+        if (!string.IsNullOrEmpty(SelectedRepository))
+        {
+            query = query.Where(d => string.Equals(d.Repository, SelectedRepository, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return query.Count(d => string.Equals(d.Environment, environment, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private int GetFilteredCount()
+    {
+        var query = allDeployments.AsEnumerable();
+
+        if (!string.IsNullOrEmpty(SelectedRepository))
+        {
+            query = query.Where(d => string.Equals(d.Repository, SelectedRepository, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrEmpty(SelectedEnvironment))
+        {
+            query = query.Where(d => string.Equals(d.Environment, SelectedEnvironment, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return query.Count();
     }
 }
