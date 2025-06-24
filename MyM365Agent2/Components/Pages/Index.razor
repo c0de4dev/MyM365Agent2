@@ -19,15 +19,75 @@
                         <p class="lead mb-0">Monitor and track GitHub Action deployments across repositories and environments</p>
                     </div>
                     <div class="text-end">
-                        <button class="btn btn-primary" @onclick="RefreshData">
+                        <button class="btn btn-primary" @onclick="RefreshData" disabled="@isLoading">
                             <i class="oi oi-reload me-2"></i>
-                            Refresh
+                            @(isLoading ? "Loading..." : "Refresh")
+                        </button>
+                        <button class="btn btn-outline-secondary ms-2" @onclick="TestConnection">
+                            <i class="oi oi-wrench me-2"></i>
+                            Test Connection
                         </button>
                     </div>
                 </div>
             </div>
         </div>
     </div>
+
+    <!-- Error Display -->
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    <i class="oi oi-warning me-2"></i>
+                    <strong>Error:</strong> @errorMessage
+                    <button type="button" class="btn-close" @onclick="ClearError"></button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Diagnostic Information -->
+    @if (showDiagnostics)
+    {
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="oi oi-info me-2"></i>
+                            Diagnostic Information
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <dl class="row">
+                            <dt class="col-sm-3">Connection Status:</dt>
+                            <dd class="col-sm-9">
+                                <span class="badge @(connectionStatus == "Connected" ? "bg-success" : "bg-danger")">
+                                    @connectionStatus
+                                </span>
+                            </dd>
+                            
+                            <dt class="col-sm-3">Table Name:</dt>
+                            <dd class="col-sm-9"><code>@tableName</code></dd>
+                            
+                            <dt class="col-sm-3">Storage Account:</dt>
+                            <dd class="col-sm-9"><code>@storageAccount</code></dd>
+                            
+                            <dt class="col-sm-3">Total Records:</dt>
+                            <dd class="col-sm-9">@totalRecords</dd>
+                            
+                            <dt class="col-sm-3">Last Refresh:</dt>
+                            <dd class="col-sm-9">@lastRefresh</dd>
+                        </dl>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => showDiagnostics = false">
+                            Hide Diagnostics
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
 
     <!-- Repository and Environment Selector -->
     <RepoEnvironmentSelector 
@@ -45,12 +105,50 @@
                 <div class="spinner-border text-primary" role="status">
                     <span class="visually-hidden">Loading deployment data...</span>
                 </div>
-                <p class="mt-3 text-muted">Loading GitHub Actions deployments...</p>
+                <p class="mt-3 text-muted">@loadingMessage</p>
+            </div>
+        </div>
+    }
+    else if (allDeployments.Count == 0)
+    {
+        <!-- No Data State -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card border-warning">
+                    <div class="card-body text-center py-5">
+                        <i class="oi oi-info mb-3 text-warning" style="font-size: 4rem;"></i>
+                        <h4 class="text-warning">No GitHub Actions Data Found</h4>
+                        <p class="text-muted mb-4">
+                            The Azure Table Storage table appears to be empty or there may be a connection issue.
+                        </p>
+                        <div class="d-flex justify-content-center gap-2">
+                            <button class="btn btn-primary" @onclick="RefreshData">
+                                <i class="oi oi-reload me-2"></i>
+                                Retry Loading
+                            </button>
+                            <button class="btn btn-outline-info" @onclick="() => showDiagnostics = true">
+                                <i class="oi oi-info me-2"></i>
+                                Show Diagnostics
+                            </button>
+                        </div>
+                        
+                        <div class="mt-4">
+                            <h6>Possible Causes:</h6>
+                            <ul class="text-start d-inline-block">
+                                <li>No GitHub Actions data has been imported to the table</li>
+                                <li>Azure Table Storage connection issues</li>
+                                <li>Incorrect table name or storage account configuration</li>
+                                <li>Permissions issues with the storage account</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     }
     else
     {
+        <!-- Rest of the existing dashboard content -->
         <!-- Quick Statistics -->
         <div class="row mb-4">
             <div class="col-12">
@@ -141,7 +239,7 @@
             </div>
         </div>
 
-        <!-- Repository Breakdown (when no specific repo selected) -->
+        <!-- Repository Breakdown -->
         @if (string.IsNullOrEmpty(selectedRepository) && repositoryStats.Any())
         {
             <div class="row mb-4">
@@ -187,7 +285,9 @@
                                                             <div class="progress-bar @(successRate >= 80 ? "bg-success" : successRate >= 60 ? "bg-warning" : "bg-danger")" 
                                                                  style="width: @(successRate)%"></div>
                                                         </div>
-                                                        <small class="text-muted">@(successRate)%</small>
+                                                        <small class="text-muted">
+                                                            @($"{successRate:F1}%")
+                                                        </small>
                                                     </div>
                                                 </td>
                                                 <td>
@@ -365,7 +465,9 @@
                             @if (displayedDeployments.Count > 15)
                             {
                                 <div class="card-footer text-center">
-                                    <button class="btn btn-outline-primary" @@onclick="() => Navigation.NavigateTo("/deployments")">
+                                    <button 
+                                        class="btn btn-outline-primary" 
+                                        @onclick='() => Navigation.NavigateTo("/deployments")'>
                                         <i class="oi oi-list me-2"></i>
                                         View All @displayedDeployments.Count Deployments
                                     </button>
@@ -407,32 +509,109 @@
     private string statusFilter = "";
     private bool isLoading = true;
     private Timer refreshTimer;
+    
+    // Diagnostic properties
+    private string errorMessage = "";
+    private bool showDiagnostics = false;
+    private string connectionStatus = "Unknown";
+    private string tableName = "Unknown";
+    private string storageAccount = "Unknown";
+    private int totalRecords = 0;
+    private string lastRefresh = "Never";
+    private string loadingMessage = "Loading deployment data...";
 
     protected override async Task OnInitializedAsync()
     {
         await LoadData();
         SetupAutoRefresh();
     }
-        string GetDetailsUrl(DeploymentState d) 
+
+    string GetDetailsUrl(DeploymentState d) 
         => $"/deployments/{d.Repository}/{d.RowKey}";
 
     private async Task LoadData()
     {
         isLoading = true;
+        errorMessage = "";
+        loadingMessage = "Connecting to Azure Table Storage...";
+        
         try
         {
+            loadingMessage = "Fetching deployment data...";
             allDeployments = await StorageService.GetDeploymentsAsync();
+            totalRecords = allDeployments.Count;
+            
+            loadingMessage = "Loading repository statistics...";
             repositoryStats = await StorageService.GetRepositoryStatisticsAsync();
+            
+            connectionStatus = "Connected";
+            lastRefresh = DateTime.Now.ToString("HH:mm:ss");
+            
             ApplyFilters();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading data: {ex.Message}");
+            errorMessage = $"Failed to load data: {ex.Message}";
+            connectionStatus = "Error";
+            Console.WriteLine($"Error loading data: {ex}");
+            
+            // Initialize empty collections to prevent null reference errors
+            allDeployments = new List<DeploymentState>();
+            repositoryStats = new Dictionary<string, Dictionary<string, int>>();
+            ApplyFilters();
         }
         finally
         {
             isLoading = false;
         }
+    }
+
+    private async Task TestConnection()
+    {
+        loadingMessage = "Testing Azure Table Storage connection...";
+        isLoading = true;
+        errorMessage = "";
+        
+        try
+        {
+            // Extract connection info for diagnostics
+            var connectionString = ""; // We'll need to get this from the service
+            if (connectionString.Contains("AccountName="))
+            {
+                var accountStart = connectionString.IndexOf("AccountName=") + 12;
+                var accountEnd = connectionString.IndexOf(";", accountStart);
+                storageAccount = connectionString.Substring(accountStart, accountEnd - accountStart);
+            }
+            
+            tableName = "GitHubDeployments"; // Default table name
+            
+            // Test the connection by attempting to get a count
+            var testDeployments = await StorageService.GetDeploymentsAsync();
+            totalRecords = testDeployments.Count;
+            
+            connectionStatus = "Connected";
+            showDiagnostics = true;
+            
+            if (totalRecords == 0)
+            {
+                errorMessage = "Connection successful, but no data found in the table. The table might be empty.";
+            }
+        }
+        catch (Exception ex)
+        {
+            connectionStatus = "Failed";
+            errorMessage = $"Connection test failed: {ex.Message}";
+            showDiagnostics = true;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ClearError()
+    {
+        errorMessage = "";
     }
 
     private void SetupAutoRefresh()

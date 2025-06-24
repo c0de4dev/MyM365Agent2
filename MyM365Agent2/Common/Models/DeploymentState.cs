@@ -15,25 +15,27 @@ namespace MyM365Agent2.Common.Models
         public DateTimeOffset? Timestamp { get; set; }
         public ETag ETag { get; set; }
 
-        // Core deployment properties
+        // String properties (as they exist in your table)
         public string CurrentStatus { get; set; }
-        public string DeploymentHistory { get; set; }      // JSON string
-        public JsonElement DeploymentId { get; set; }      // JsonElement for polymorphic JSON
+        public string DeploymentId { get; set; }
         public string EventType { get; set; }
-        public string JobHistory { get; set; }             // JSON string
-        public JsonElement LastStatusUpdate { get; set; }  // JsonElement for polymorphic JSON
+        public string LastStatusUpdate { get; set; }
         public string Note { get; set; }
         public string Repository { get; set; }
-        public JsonElement RunNumber { get; set; }         // JsonElement for polymorphic JSON
-        public JsonElement RunStartedAt { get; set; }      // JsonElement for polymorphic JSON
+        public string RunNumber { get; set; }
+        public string RunStartedAt { get; set; }
         public string RunStatus { get; set; }
         public string RunUrl { get; set; }
-        public string StatusHistory { get; set; }          // JSON string
         public string TriggerEvent { get; set; }
         public string WorkflowName { get; set; }
         public string WorkflowPath { get; set; }
-        public JsonElement WorkflowRunId { get; set; }     // JsonElement for polymorphic JSON
+        public string WorkflowRunId { get; set; }
         public string WorkflowUrl { get; set; }
+
+        // JSON string properties (these contain JSON data)
+        public string DeploymentHistory { get; set; }      // JSON string
+        public string JobHistory { get; set; }             // JSON string
+        public string StatusHistory { get; set; }          // JSON string
 
         // Parsed deployment history properties
         private DeploymentHistoryInfo _deploymentInfo;
@@ -56,8 +58,9 @@ namespace MyM365Agent2.Common.Models
                             _deploymentInfo = JsonSerializer.Deserialize<DeploymentHistoryInfo>(DeploymentHistory, options);
                         }
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        Console.WriteLine($"Error parsing deployment history: {ex.Message}");
                         _deploymentInfo = new DeploymentHistoryInfo();
                     }
                 }
@@ -65,38 +68,69 @@ namespace MyM365Agent2.Common.Models
             }
         }
 
-        // Date conversion helpers
-        public DateTime? LastStatusUpdateDateTime => SafeConvertToDateTime(LastStatusUpdate);
-        public DateTime? RunStartedAtDateTime => SafeConvertToDateTime(RunStartedAt);
+        // Date conversion helpers for string date fields
+        public DateTime? LastStatusUpdateDateTime => SafeParseDateTime(LastStatusUpdate);
+        public DateTime? RunStartedAtDateTime => SafeParseDateTime(RunStartedAt);
 
-        private DateTime? SafeConvertToDateTime(JsonElement element)
+        private DateTime? SafeParseDateTime(string dateString)
         {
-            switch (element.ValueKind)
+            if (string.IsNullOrEmpty(dateString)) return null;
+
+            try
             {
-                case JsonValueKind.String:
-                    if (DateTimeOffset.TryParse(element.GetString(), out var dto))
-                        return dto.DateTime;
-                    break;
-                case JsonValueKind.Number:
-                    if (element.TryGetInt64(out var seconds))
-                        return DateTimeOffset.FromUnixTimeSeconds(seconds).DateTime;
-                    break;
-                default:
-                    break;
+                if (DateTimeOffset.TryParse(dateString, out var dto))
+                    return dto.DateTime;
+
+                if (DateTime.TryParse(dateString, out var dt))
+                    return dt;
+
+                // Try parsing as Unix timestamp if it's a number
+                if (long.TryParse(dateString, out var unixTimestamp))
+                {
+                    return DateTimeOffset.FromUnixTimeSeconds(unixTimestamp).DateTime;
+                }
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error parsing date '{dateString}': {ex.Message}");
+            }
+
             return null;
         }
 
         // Display helpers
         public string State => CurrentStatus ?? RunStatus ?? "unknown";
         public string CreatorLogin => DeploymentInfo.Creator ?? "Unknown";
-        public DateTime CreatedAt => DeploymentInfo.CreatedAtDateTime
-                                   ?? RunStartedAtDateTime
-                                   ?? LastStatusUpdateDateTime
-                                   ?? DateTime.MinValue;
-        public DateTime UpdatedAt => LastStatusUpdateDateTime
-                                   ?? DeploymentInfo.UpdatedAtDateTime
-                                   ?? DateTime.MinValue;
+
+        public DateTime CreatedAt
+        {
+            get
+            {
+                var candidates = new[]
+                {
+                    DeploymentInfo.CreatedAtDateTime,
+                    RunStartedAtDateTime,
+                    LastStatusUpdateDateTime
+                };
+
+                return candidates.FirstOrDefault(d => d.HasValue) ?? DateTime.MinValue;
+            }
+        }
+
+        public DateTime UpdatedAt
+        {
+            get
+            {
+                var candidates = new[]
+                {
+                    LastStatusUpdateDateTime,
+                    DeploymentInfo.UpdatedAtDateTime
+                };
+
+                return candidates.FirstOrDefault(d => d.HasValue) ?? DateTime.MinValue;
+            }
+        }
+
         public string Branch => DeploymentInfo.Ref ?? "main";
         public string Environment => DeploymentInfo.Environment ?? "production";
         public string WorkflowRunUrl => RunUrl ?? WorkflowUrl ?? "";
@@ -145,7 +179,7 @@ namespace MyM365Agent2.Common.Models
             {
                 var start = RunStartedAtDateTime;
                 var end = LastStatusUpdateDateTime;
-                return (start.HasValue && end.HasValue)
+                return (start.HasValue && end.HasValue && end > start)
                     ? end.Value - start.Value
                     : (TimeSpan?)null;
             }
@@ -157,6 +191,7 @@ namespace MyM365Agent2.Common.Models
             {
                 var d = Duration;
                 if (!d.HasValue) return "N/A";
+
                 if (d.Value.TotalDays >= 1)
                     return $"{(int)d.Value.TotalDays}d {d.Value.Hours}h {d.Value.Minutes}m";
                 if (d.Value.TotalHours >= 1)
@@ -167,30 +202,12 @@ namespace MyM365Agent2.Common.Models
             }
         }
 
-        private string SafeGetRawText(JsonElement element)
-        {
-            try
-            {
-                return element.ValueKind switch
-                {
-                    JsonValueKind.String => element.GetString() ?? string.Empty,
-                    JsonValueKind.Number => element.GetRawText(),
-                    JsonValueKind.Null => string.Empty,
-                    JsonValueKind.Undefined => string.Empty,
-                    _ => element.ToString() ?? string.Empty,
-                };
-            }
-            catch
-            {
-                return string.Empty;
-            }
-        }
+        // String display helpers for IDs and numbers
+        public string RunNumberDisplay => RunNumber ?? "N/A";
+        public string DeploymentIdDisplay => DeploymentId ?? "N/A";
+        public string WorkflowRunIdDisplay => WorkflowRunId ?? "N/A";
 
-        public string RunNumberDisplay => SafeGetRawText(RunNumber);
-        public string DeploymentIdDisplay => SafeGetRawText(DeploymentId);
-        public string WorkflowRunIdDisplay => SafeGetRawText(WorkflowRunId);
-
-        // Job summary
+        // Job summary with improved error handling
         public JobSummary GetJobSummary()
         {
             var summary = new JobSummary();
@@ -212,17 +229,33 @@ namespace MyM365Agent2.Common.Models
                                                   .Sum(j => j.duration_seconds.Value);
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error parsing job history: {ex.Message}");
+            }
 
             return summary;
         }
 
-        // Environment statuses
+        // Environment statuses with improved error handling
         public List<EnvironmentStatus> GetEnvironmentStatuses()
         {
             var statuses = new List<EnvironmentStatus>();
             if (string.IsNullOrEmpty(StatusHistory))
+            {
+                // Fallback to creating a single environment status from basic info
+                if (!string.IsNullOrEmpty(Environment))
+                {
+                    statuses.Add(new EnvironmentStatus
+                    {
+                        Environment = Environment,
+                        Status = State,
+                        LastUpdate = UpdatedAt != DateTime.MinValue ? UpdatedAt : (DateTime?)null,
+                        Creator = CreatorLogin
+                    });
+                }
                 return statuses;
+            }
 
             try
             {
@@ -246,18 +279,18 @@ namespace MyM365Agent2.Common.Models
             catch (JsonException ex)
             {
                 Console.WriteLine($"Error parsing status history: {ex.Message}");
-                try
+
+                // Fallback to basic environment status
+                if (!string.IsNullOrEmpty(Environment))
                 {
-                    if (!string.IsNullOrEmpty(Environment))
-                        statuses.Add(new EnvironmentStatus
-                        {
-                            Environment = Environment,
-                            Status = State,
-                            LastUpdate = (UpdatedAt != DateTime.MinValue) ? UpdatedAt : (DateTime?)null,
-                            Creator = CreatorLogin
-                        });
+                    statuses.Add(new EnvironmentStatus
+                    {
+                        Environment = Environment,
+                        Status = State,
+                        LastUpdate = UpdatedAt != DateTime.MinValue ? UpdatedAt : (DateTime?)null,
+                        Creator = CreatorLogin
+                    });
                 }
-                catch { }
             }
 
             return statuses;
@@ -267,28 +300,38 @@ namespace MyM365Agent2.Common.Models
     public class DeploymentHistoryInfo
     {
         public string Creator { get; set; }
-        public JsonElement CreatedAt { get; set; }
+        public string CreatedAt { get; set; }
         public string Ref { get; set; }
         public string Id { get; set; }
         public string Environment { get; set; }
-        public JsonElement UpdatedAt { get; set; }
+        public string UpdatedAt { get; set; }
 
-        public DateTime? CreatedAtDateTime => SafeConvert(CreatedAt);
-        public DateTime? UpdatedAtDateTime => SafeConvert(UpdatedAt);
+        public DateTime? CreatedAtDateTime => SafeParseDateTime(CreatedAt);
+        public DateTime? UpdatedAtDateTime => SafeParseDateTime(UpdatedAt);
 
-        private static DateTime? SafeConvert(JsonElement e)
+        private static DateTime? SafeParseDateTime(string dateString)
         {
-            switch (e.ValueKind)
+            if (string.IsNullOrEmpty(dateString)) return null;
+
+            try
             {
-                case JsonValueKind.String:
-                    if (DateTimeOffset.TryParse(e.GetString(), out var dto))
-                        return dto.DateTime;
-                    break;
-                case JsonValueKind.Number:
-                    if (e.TryGetInt64(out var ms))
-                        return DateTimeOffset.FromUnixTimeMilliseconds(ms).DateTime;
-                    break;
+                if (DateTimeOffset.TryParse(dateString, out var dto))
+                    return dto.DateTime;
+
+                if (DateTime.TryParse(dateString, out var dt))
+                    return dt;
+
+                // Try parsing as Unix timestamp if it's a number
+                if (long.TryParse(dateString, out var unixTimestamp))
+                {
+                    return DateTimeOffset.FromUnixTimeSeconds(unixTimestamp).DateTime;
+                }
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error parsing date in DeploymentHistoryInfo '{dateString}': {ex.Message}");
+            }
+
             return null;
         }
     }
@@ -307,29 +350,39 @@ namespace MyM365Agent2.Common.Models
     public class StatusHistoryItem
     {
         public string Creator { get; set; }
-        public JsonElement CreatedAt { get; set; }
+        public string CreatedAt { get; set; }
         public string Description { get; set; }
         public string State { get; set; }
-        public JsonElement UpdatedAt { get; set; }
+        public string UpdatedAt { get; set; }
         public string LogUrl { get; set; }
         public string Environment { get; set; }
 
-        public DateTime? CreatedAtDateTime => SafeConvert(CreatedAt);
-        public DateTime? UpdatedAtDateTime => SafeConvert(UpdatedAt);
+        public DateTime? CreatedAtDateTime => SafeParseDateTime(CreatedAt);
+        public DateTime? UpdatedAtDateTime => SafeParseDateTime(UpdatedAt);
 
-        private static DateTime? SafeConvert(JsonElement e)
+        private static DateTime? SafeParseDateTime(string dateString)
         {
-            switch (e.ValueKind)
+            if (string.IsNullOrEmpty(dateString)) return null;
+
+            try
             {
-                case JsonValueKind.String:
-                    if (DateTimeOffset.TryParse(e.GetString(), out var dto))
-                        return dto.DateTime;
-                    break;
-                case JsonValueKind.Number:
-                    if (e.TryGetInt64(out var seconds))
-                        return DateTimeOffset.FromUnixTimeSeconds(seconds).DateTime;
-                    break;
+                if (DateTimeOffset.TryParse(dateString, out var dto))
+                    return dto.DateTime;
+
+                if (DateTime.TryParse(dateString, out var dt))
+                    return dt;
+
+                // Try parsing as Unix timestamp if it's a number
+                if (long.TryParse(dateString, out var unixTimestamp))
+                {
+                    return DateTimeOffset.FromUnixTimeSeconds(unixTimestamp).DateTime;
+                }
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error parsing date in StatusHistoryItem '{dateString}': {ex.Message}");
+            }
+
             return null;
         }
     }
