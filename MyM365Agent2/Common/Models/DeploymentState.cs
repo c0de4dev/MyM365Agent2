@@ -37,6 +37,139 @@ namespace MyM365Agent2.Common.Models
         public string JobHistory { get; set; }             // JSON string
         public string StatusHistory { get; set; }          // JSON string
 
+
+        // NEW: Approval workflow properties
+        public bool IsApprovalRecord => EventType == "deployment_review";
+        public bool IsDeploymentRecord => EventType == "deployment";
+        public string BaseWorkflowRunId => RowKey?.Contains('_') == true
+            ? RowKey.Split('_')[0]
+            : RowKey;
+
+        // Enhanced approval workflow methods
+        public ApprovalWorkflowSummary GetApprovalSummary()
+        {
+            var summary = new ApprovalWorkflowSummary();
+            if (string.IsNullOrEmpty(StatusHistory))
+                return summary;
+
+            try
+            {
+                var items = JsonSerializer.Deserialize<StatusHistoryItem[]>(StatusHistory,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (items != null)
+                {
+                    summary.TotalEnvironments = items.Select(i => i.Environment).Distinct().Count();
+                    summary.CompletedEnvironments = items.Where(i => i.State == "success").Select(i => i.Environment).Distinct().Count();
+                    summary.PendingEnvironments = items.Where(i => i.State == "waiting").Select(i => i.Environment).Distinct().ToList();
+                    summary.FailedEnvironments = items.Where(i => i.State == "failure").Select(i => i.Environment).Distinct().ToList();
+                    summary.CurrentEnvironment = items.OrderByDescending(i => i.UpdatedAtDateTime ?? DateTime.MinValue).FirstOrDefault()?.Environment;
+                    summary.OverallStatus = DetermineOverallApprovalStatus(items);
+                }
+            }
+            catch { }
+
+            return summary;
+        }
+
+        private string DetermineOverallApprovalStatus(StatusHistoryItem[] items)
+        {
+            if (items.Any(i => i.State == "failure"))
+                return "rejected";
+            if (items.Any(i => i.State == "waiting"))
+                return "pending_approval";
+            if (items.All(i => i.State == "success"))
+                return "approved";
+            return "in_progress";
+        }
+
+        // Enhanced environment progression tracking
+        public List<EnvironmentProgression> GetEnvironmentProgression()
+        {
+            var progressions = new List<EnvironmentProgression>();
+            if (string.IsNullOrEmpty(StatusHistory))
+                return progressions;
+
+            try
+            {
+                var items = JsonSerializer.Deserialize<StatusHistoryItem[]>(StatusHistory,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (items != null)
+                {
+                    var environmentGroups = items.GroupBy(i => i.Environment)
+                                                 .Where(g => !string.IsNullOrEmpty(g.Key));
+
+                    foreach (var envGroup in environmentGroups)
+                    {
+                        var orderedStates = envGroup.OrderBy(i => i.CreatedAtDateTime ?? DateTime.MinValue).ToList();
+                        var progression = new EnvironmentProgression
+                        {
+                            Environment = envGroup.Key,
+                            States = orderedStates.Select(s => new StateTransition
+                            {
+                                State = s.State,
+                                Timestamp = s.UpdatedAtDateTime ?? s.CreatedAtDateTime ?? DateTime.MinValue,
+                                Duration = CalculateStateDuration(orderedStates, s)
+                            }).ToList(),
+                            CurrentState = orderedStates.LastOrDefault()?.State ?? "unknown",
+                            StartTime = orderedStates.FirstOrDefault()?.CreatedAtDateTime,
+                            LastUpdateTime = orderedStates.LastOrDefault()?.UpdatedAtDateTime,
+                            TotalDuration = CalculateEnvironmentDuration(orderedStates)
+                        };
+                        progressions.Add(progression);
+                    }
+                }
+            }
+            catch { }
+
+            return progressions.OrderBy(p => p.StartTime ?? DateTime.MaxValue).ToList();
+        }
+
+        private TimeSpan? CalculateStateDuration(List<StatusHistoryItem> orderedStates, StatusHistoryItem currentState)
+        {
+            var currentIndex = orderedStates.IndexOf(currentState);
+            if (currentIndex < orderedStates.Count - 1)
+            {
+                var nextState = orderedStates[currentIndex + 1];
+                var start = currentState.CreatedAtDateTime ?? currentState.UpdatedAtDateTime;
+                var end = nextState.CreatedAtDateTime ?? nextState.UpdatedAtDateTime;
+                if (start.HasValue && end.HasValue)
+                    return end.Value - start.Value;
+            }
+            return null;
+        }
+
+        private TimeSpan? CalculateEnvironmentDuration(List<StatusHistoryItem> states)
+        {
+            var first = states.FirstOrDefault()?.CreatedAtDateTime;
+            var last = states.LastOrDefault()?.UpdatedAtDateTime;
+            if (first.HasValue && last.HasValue)
+                return last.Value - first.Value;
+            return null;
+        }
+
+        // Enhanced display properties
+        public string ApprovalDisplayStatus
+        {
+            get
+            {
+                if (!IsApprovalRecord) return DisplayStatus;
+
+                return CurrentStatus?.ToLowerInvariant() switch
+                {
+                    "requested" => "Approval Requested",
+                    "approved" => "Approved",
+                    "rejected" => "Rejected",
+                    "pending_approval" => "Pending Approval",
+                    _ => CurrentStatus ?? "Unknown"
+                };
+            }
+        }
+
+        public bool RequiresApproval => IsApprovalRecord ||
+            (!string.IsNullOrEmpty(StatusHistory) && StatusHistory.Contains("waiting"));
+
         // Parsed deployment history properties
         private DeploymentHistoryInfo _deploymentInfo;
         public DeploymentHistoryInfo DeploymentInfo
@@ -411,5 +544,35 @@ namespace MyM365Agent2.Common.Models
         public string Status { get; set; }
         public DateTime? LastUpdate { get; set; }
         public string Creator { get; set; }
+    }
+
+    public class ApprovalWorkflowSummary
+    {
+        public int TotalEnvironments { get; set; }
+        public int CompletedEnvironments { get; set; }
+        public List<string> PendingEnvironments { get; set; } = new();
+        public List<string> FailedEnvironments { get; set; } = new();
+        public string CurrentEnvironment { get; set; }
+        public string OverallStatus { get; set; }
+
+        public double CompletionPercentage => TotalEnvironments > 0
+            ? (CompletedEnvironments * 100.0) / TotalEnvironments
+            : 0;
+    }
+    public class StateTransition
+    {
+        public string State { get; set; }
+        public DateTime Timestamp { get; set; }
+        public TimeSpan? Duration { get; set; }
+    }
+
+    public class EnvironmentProgression
+    {
+        public string Environment { get; set; }
+        public List<StateTransition> States { get; set; } = new();
+        public string CurrentState { get; set; }
+        public DateTime? StartTime { get; set; }
+        public DateTime? LastUpdateTime { get; set; }
+        public TimeSpan? TotalDuration { get; set; }
     }
 }

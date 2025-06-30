@@ -1,0 +1,804 @@
+﻿@page "/approvals"
+@using MyM365Agent2.Common.Models
+@using MyM365Agent2.Services
+@using System.Text.Json
+@inject IAzureTableStorageService StorageService
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<div class="container-fluid">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item">
+                        <button class="btn btn-link p-0" @onclick='() => Navigation.NavigateTo("/")'>
+                            <i class="oi oi-home"></i> Dashboard
+                        </button>
+                    </li>
+                    <li class="breadcrumb-item active" aria-current="page">Approvals</li>
+                </ol>
+            </nav>
+            
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2 class="mb-1">
+                        <i class="oi oi-shield me-2"></i>
+                        Deployment Approvals
+                    </h2>
+                    <p class="text-muted mb-0">
+                        Manage and approve pending deployment requests across all repositories and environments
+                    </p>
+                </div>
+                <div>
+                    <button class="btn btn-primary" @onclick="RefreshData">
+                        <i class="oi oi-reload me-2"></i>
+                        Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="row mb-4">
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card text-white bg-warning h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Pending Approvals</h6>
+                            <h2 class="mb-0">@pendingApprovals.Count</h2>
+                            <small>Awaiting review</small>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="oi oi-shield" style="font-size: 2rem; opacity: 0.7;"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card text-white bg-success h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Approved Today</h6>
+                            <h2 class="mb-0">@GetApprovedTodayCount()</h2>
+                            <small>Last 24 hours</small>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="oi oi-check" style="font-size: 2rem; opacity: 0.7;"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card text-white bg-danger h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Rejected Today</h6>
+                            <h2 class="mb-0">@GetRejectedTodayCount()</h2>
+                            <small>Last 24 hours</small>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="oi oi-x" style="font-size: 2rem; opacity: 0.7;"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card text-white bg-info h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Environments</h6>
+                            <h2 class="mb-0">@GetUniqueEnvironmentCount()</h2>
+                            <small>With pending approvals</small>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="oi oi-globe" style="font-size: 2rem; opacity: 0.7;"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-body">
+                    <div class="row align-items-center">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Environment</label>
+                            <select class="form-select" @onchange="OnEnvironmentFilterChanged">
+                                <option value="">All Environments</option>
+                                @foreach (var env in availableEnvironments)
+                                {
+                                    <option value="@env" selected="@(selectedEnvironment == env)">@env</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Repository</label>
+                            <select class="form-select" @onchange="OnRepositoryFilterChanged">
+                                <option value="">All Repositories</option>
+                                @foreach (var repo in availableRepositories)
+                                {
+                                    <option value="@repo" selected="@(selectedRepository == repo)">@repo</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Age Filter</label>
+                            <select class="form-select" @onchange="OnAgeFilterChanged">
+                                <option value="">All Ages</option>
+                                <option value="1">Last 1 hour</option>
+                                <option value="6">Last 6 hours</option>
+                                <option value="24">Last 24 hours</option>
+                                <option value="168">Last week</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <label class="form-label fw-bold">Bulk Actions</label>
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-success btn-sm" 
+                                @onclick="ShowBulkApprovalModal"
+                                disabled="@(!selectedApprovals.Any())">
+                            <i class="oi oi-check me-1"></i>
+                            Approve Selected (@selectedApprovals.Count)
+                        </button>
+                        <button class="btn btn-danger btn-sm" 
+                                @onclick="ShowBulkRejectionModal"
+                                disabled="@(!selectedApprovals.Any())">
+                            <i class="oi oi-x me-1"></i>
+                            Reject Selected (@selectedApprovals.Count)
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading State -->
+    @if (isLoading)
+    {
+        <div class="row">
+            <div class="col-12 text-center py-5">
+                <div class="spinner-border text-warning" role="status">
+                    <span class="visually-hidden">Loading approval data...</span>
+                </div>
+                <p class="mt-3 text-muted">Loading pending approvals...</p>
+            </div>
+        </div>
+    }
+    else if (!filteredApprovals.Any())
+    {
+        <div class="row">
+            <div class="col-12">
+                <div class="alert alert-success text-center">
+                    <i class="oi oi-check mb-3" style="font-size: 3rem;"></i>
+                    <h4>No Pending Approvals</h4>
+                    <p class="mb-3">
+                        @if (!string.IsNullOrEmpty(selectedRepository) || !string.IsNullOrEmpty(selectedEnvironment))
+                        {
+                            <text>No pending approvals match your current filters. All deployments in the selected scope have been processed.</text>
+                        }
+                        else
+                        {
+                            <text>Great! All deployment requests have been processed. No approvals are currently pending.</text>
+                        }
+                    </p>
+                    <button class="btn btn-primary" @onclick='() => Navigation.NavigateTo("/deployments")'>
+                        <i class="oi oi-list me-2"></i>
+                        View All Deployments
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- Approvals List -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">
+                                <i class="oi oi-shield me-2"></i>
+                                Pending Deployment Approvals
+                                <span class="badge bg-warning ms-2">@filteredApprovals.Count</span>
+                            </h5>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" 
+                                       @onchange="ToggleSelectAll" 
+                                       checked="@(selectedApprovals.Count == filteredApprovals.Count && filteredApprovals.Any())">
+                                <label class="form-check-label">
+                                    Select All
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead class="table-warning">
+                                    <tr>
+                                        <th class="border-0" style="width: 40px;">
+                                            <input class="form-check-input" type="checkbox" 
+                                                   @onchange="ToggleSelectAll" 
+                                                   checked="@(selectedApprovals.Count == filteredApprovals.Count && filteredApprovals.Any())">
+                                        </th>
+                                        <th class="border-0">Repository</th>
+                                        <th class="border-0">Environment</th>
+                                        <th class="border-0">Workflow</th>
+                                        <th class="border-0">Requested By</th>
+                                        <th class="border-0">Request Time</th>
+                                        <th class="border-0">Age</th>
+                                        <th class="border-0">Priority</th>
+                                        <th class="border-0">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var approval in filteredApprovals)
+                                    {
+                                        <tr class="@(selectedApprovals.Contains(approval.RowKey) ? "table-active" : "")">
+                                            <td>
+                                                <input class="form-check-input" type="checkbox" 
+                                                       @onchange="(e) => ToggleSelection(approval.RowKey, (bool)e.Value)"
+                                                       checked="@selectedApprovals.Contains(approval.RowKey)">
+                                            </td>
+                                            <td>
+                                                <div class="d-flex align-items-center">
+                                                    <i class="oi oi-code me-2 text-primary"></i>
+                                                    <div>
+                                                        <div class="fw-bold">@approval.Repository</div>
+                                                        @if (!string.IsNullOrEmpty(approval.WorkflowRunIdDisplay) && approval.WorkflowRunIdDisplay != "N/A")
+                                                        {
+                                                            <small class="text-muted">Run #@approval.WorkflowRunIdDisplay</small>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-info">
+                                                    <i class="oi oi-globe me-1"></i>
+                                                    @approval.Environment
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <div>
+                                                    <div class="fw-medium">@approval.WorkflowDisplayName</div>
+                                                    @if (!string.IsNullOrEmpty(approval.Branch))
+                                                    {
+                                                        <small class="text-muted">
+                                                            <i class="oi oi-fork me-1"></i>
+                                                            @approval.Branch
+                                                        </small>
+                                                    }
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="d-flex align-items-center">
+                                                    <i class="oi oi-person me-2"></i>
+                                                    <div>
+                                                        <div>@approval.CreatorLogin</div>
+                                                        <small class="text-muted">@approval.TriggerType</small>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div>
+                                                    <div>@approval.CreatedAt.ToString("MMM dd, HH:mm")</div>
+                                                    <small class="text-muted">@approval.CreatedAt.ToString("yyyy")</small>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <span class="badge @GetAgeBadgeClass(approval.CreatedAt)">
+                                                    @GetTimeAgo(approval.CreatedAt)
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <span class="badge @GetPriorityBadgeClass(approval.Environment, approval.CreatedAt)">
+                                                    @GetPriority(approval.Environment, approval.CreatedAt)
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <div class="d-flex gap-1">
+                                                    <button class="btn btn-sm btn-success" 
+                                                            @onclick="() => ApproveDeployment(approval)"
+                                                            title="Approve">
+                                                        <i class="oi oi-check"></i>
+                                                    </button>
+                                                    <button class="btn btn-sm btn-danger" 
+                                                            @onclick="() => RejectDeployment(approval)"
+                                                            title="Reject">
+                                                        <i class="oi oi-x"></i>
+                                                    </button>
+                                                    <button class="btn btn-sm btn-outline-primary" 
+                                                            @onclick="() => ViewDetails(approval)"
+                                                            title="View Details">
+                                                        <i class="oi oi-eye"></i>
+                                                    </button>
+                                                    @if (!string.IsNullOrEmpty(approval.WorkflowRunUrl))
+                                                    {
+                                                        <a href="@approval.WorkflowRunUrl" target="_blank" 
+                                                           class="btn btn-sm btn-outline-secondary" title="View on GitHub">
+                                                            <i class="oi oi-external-link"></i>
+                                                        </a>
+                                                    }
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<!-- Bulk Approval Modal -->
+@if (showBulkModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        @if (isBulkApproval)
+                        {
+                            <i class="oi oi-check me-2 text-success"></i>
+                            <text>Bulk Approve Deployments</text>
+                        }
+                        else
+                        {
+                            <i class="oi oi-x me-2 text-danger"></i>
+                            <text>Bulk Reject Deployments</text>
+                        }
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="HideBulkModal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <strong>@(isBulkApproval ? "Approve" : "Reject") @selectedApprovals.Count deployment@(selectedApprovals.Count == 1 ? "" : "s"):</strong>
+                        <ul class="mt-2">
+                            @foreach (var approval in filteredApprovals.Where(a => selectedApprovals.Contains(a.RowKey)).Take(5))
+                            {
+                                <li>@approval.Repository - @approval.Environment (@approval.WorkflowDisplayName)</li>
+                            }
+                            @if (selectedApprovals.Count > 5)
+                            {
+                                <li><em>...and @(selectedApprovals.Count - 5) more</em></li>
+                            }
+                        </ul>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="bulkApproverName" class="form-label">Your Name/Username:</label>
+                        <input type="text" class="form-control" id="bulkApproverName" @bind="bulkApproverName" 
+                               placeholder="Enter your name or username" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="bulkComment" class="form-label">Comment (Optional):</label>
+                        <textarea class="form-control" id="bulkComment" rows="3" @bind="bulkComment"
+                                  placeholder="@(isBulkApproval ? "Add bulk approval notes..." : "Provide bulk rejection reason...")"></textarea>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(bulkError))
+                    {
+                        <div class="alert alert-danger">
+                            <i class="oi oi-warning me-2"></i>
+                            @bulkError
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="HideBulkModal" disabled="@isProcessingBulk">
+                        Cancel
+                    </button>
+                    <button type="button" 
+                            class="btn @(isBulkApproval ? "btn-success" : "btn-danger")" 
+                            @onclick="ProcessBulkAction" 
+                            disabled="@(isProcessingBulk || string.IsNullOrWhiteSpace(bulkApproverName))">
+                        @if (isProcessingBulk)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        @if (isBulkApproval)
+                        {
+                            <i class="oi oi-check me-2"></i>
+                            <text>Approve All (@selectedApprovals.Count)</text>
+                        }
+                        else
+                        {
+                            <i class="oi oi-x me-2"></i>
+                            <text>Reject All (@selectedApprovals.Count)</text>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<DeploymentState> pendingApprovals = new();
+    private List<DeploymentState> filteredApprovals = new();
+    private List<DeploymentState> allRecentApprovals = new();
+    private List<string> availableEnvironments = new();
+    private List<string> availableRepositories = new();
+    
+    private string selectedEnvironment = "";
+    private string selectedRepository = "";
+    private int ageFilterHours = 0;
+    
+    private bool isLoading = true;
+    private List<string> selectedApprovals = new();
+    
+    // Bulk action modal
+    private bool showBulkModal = false;
+    private bool isBulkApproval = false;
+    private bool isProcessingBulk = false;
+    private string bulkApproverName = "";
+    private string bulkComment = "";
+    private string bulkError = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        try
+        {
+            pendingApprovals = await StorageService.GetPendingApprovalsByEnvironmentAsync();
+            
+            // Load recent approvals/rejections for statistics
+            var allDeployments = await StorageService.GetDeploymentsAsync();
+            allRecentApprovals = allDeployments
+                .Where(d => d.StatusCategory == "success" || d.StatusCategory == "failure")
+                .Where(d => d.RowKey?.Contains("_protection_rule") == true)
+                .OrderByDescending(d => d.UpdatedAt)
+                .Take(100)
+                .ToList();
+            
+            // Extract available filters
+            availableEnvironments = pendingApprovals
+                .Select(d => d.Environment)
+                .Distinct()
+                .OrderBy(e => e)
+                .ToList();
+                
+            availableRepositories = pendingApprovals
+                .Select(d => d.Repository)
+                .Distinct()
+                .OrderBy(r => r)
+                .ToList();
+            
+            ApplyFilters();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading approval data: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ApplyFilters()
+    {
+        filteredApprovals = pendingApprovals.ToList();
+
+        if (!string.IsNullOrEmpty(selectedEnvironment))
+        {
+            filteredApprovals = filteredApprovals.Where(d => d.Environment == selectedEnvironment).ToList();
+        }
+
+        if (!string.IsNullOrEmpty(selectedRepository))
+        {
+            filteredApprovals = filteredApprovals.Where(d => d.Repository == selectedRepository).ToList();
+        }
+
+        if (ageFilterHours > 0)
+        {
+            var cutoff = DateTime.UtcNow.AddHours(-ageFilterHours);
+            filteredApprovals = filteredApprovals.Where(d => d.CreatedAt >= cutoff).ToList();
+        }
+
+        // Sort by priority: production first, then by age
+        filteredApprovals = filteredApprovals
+            .OrderBy(d => d.Environment.ToLower() == "production" ? 0 : 1)
+            .ThenBy(d => d.CreatedAt)
+            .ToList();
+
+        // Clear selections that are no longer visible
+        selectedApprovals = selectedApprovals.Where(id => filteredApprovals.Any(a => a.RowKey == id)).ToList();
+    }
+
+    private async Task OnEnvironmentFilterChanged(ChangeEventArgs e)
+    {
+        selectedEnvironment = e.Value?.ToString() ?? "";
+        ApplyFilters();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnRepositoryFilterChanged(ChangeEventArgs e)
+    {
+        selectedRepository = e.Value?.ToString() ?? "";
+        ApplyFilters();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnAgeFilterChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var hours))
+        {
+            ageFilterHours = hours;
+            ApplyFilters();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void ToggleSelection(string approvalId, bool selected)
+    {
+        if (selected && !selectedApprovals.Contains(approvalId))
+        {
+            selectedApprovals.Add(approvalId);
+        }
+        else if (!selected)
+        {
+            selectedApprovals.Remove(approvalId);
+        }
+    }
+
+    private void ToggleSelectAll()
+    {
+        if (selectedApprovals.Count == filteredApprovals.Count)
+        {
+            selectedApprovals.Clear();
+        }
+        else
+        {
+            selectedApprovals = filteredApprovals.Select(a => a.RowKey).ToList();
+        }
+    }
+
+    private async Task ApproveDeployment(DeploymentState deployment)
+    {
+        try
+        {
+            var success = await StorageService.ApproveDeploymentAsync(deployment.Repository, deployment.RowKey, "Approvals Dashboard User", "Approved from approvals dashboard");
+            if (success)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"Deployment for {deployment.Repository} - {deployment.Environment} approved successfully!");
+                await LoadData();
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Failed to approve deployment. Please try again.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error approving deployment: {ex.Message}");
+        }
+    }
+
+    private async Task RejectDeployment(DeploymentState deployment)
+    {
+        try
+        {
+            var success = await StorageService.RejectDeploymentAsync(deployment.Repository, deployment.RowKey, "Approvals Dashboard User", "Rejected from approvals dashboard");
+            if (success)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"Deployment for {deployment.Repository} - {deployment.Environment} rejected successfully!");
+                await LoadData();
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Failed to reject deployment. Please try again.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error rejecting deployment: {ex.Message}");
+        }
+    }
+
+    private void ViewDetails(DeploymentState deployment)
+    {
+        Navigation.NavigateTo($"/deployments/{deployment.Repository}/{deployment.RowKey}");
+    }
+
+    private async Task RefreshData()
+    {
+        await LoadData();
+    }
+
+    // Bulk actions
+    private void ShowBulkApprovalModal()
+    {
+        isBulkApproval = true;
+        showBulkModal = true;
+        bulkError = "";
+        bulkComment = "";
+    }
+
+    private void ShowBulkRejectionModal()
+    {
+        isBulkApproval = false;
+        showBulkModal = true;
+        bulkError = "";
+        bulkComment = "";
+    }
+
+    private void HideBulkModal()
+    {
+        showBulkModal = false;
+        bulkError = "";
+        bulkComment = "";
+        bulkApproverName = "";
+    }
+
+    private async Task ProcessBulkAction()
+    {
+        if (string.IsNullOrWhiteSpace(bulkApproverName))
+        {
+            bulkError = "Please enter your name or username.";
+            return;
+        }
+
+        isProcessingBulk = true;
+        bulkError = "";
+
+        try
+        {
+            var approvalsToProcess = filteredApprovals.Where(a => selectedApprovals.Contains(a.RowKey)).ToList();
+            var successCount = 0;
+            var failureCount = 0;
+
+            foreach (var approval in approvalsToProcess)
+            {
+                try
+                {
+                    bool success;
+                    if (isBulkApproval)
+                    {
+                        success = await StorageService.ApproveDeploymentAsync(
+                            approval.Repository, 
+                            approval.RowKey, 
+                            bulkApproverName, 
+                            string.IsNullOrWhiteSpace(bulkComment) ? "Bulk approval" : bulkComment);
+                    }
+                    else
+                    {
+                        success = await StorageService.RejectDeploymentAsync(
+                            approval.Repository, 
+                            approval.RowKey, 
+                            bulkApproverName, 
+                            string.IsNullOrWhiteSpace(bulkComment) ? "Bulk rejection" : bulkComment);
+                    }
+
+                    if (success) successCount++;
+                    else failureCount++;
+                }
+                catch
+                {
+                    failureCount++;
+                }
+            }
+
+            var action = isBulkApproval ? "approved" : "rejected";
+            var message = $"Bulk action completed: {successCount} deployments {action} successfully";
+            if (failureCount > 0)
+            {
+                message += $", {failureCount} failed";
+            }
+
+            await JSRuntime.InvokeVoidAsync("alert", message);
+            
+            selectedApprovals.Clear();
+            await LoadData();
+            HideBulkModal();
+        }
+        catch (Exception ex)
+        {
+            bulkError = $"Error processing bulk action: {ex.Message}";
+        }
+        finally
+        {
+            isProcessingBulk = false;
+        }
+    }
+
+    // Helper methods
+    private int GetApprovedTodayCount()
+    {
+        var yesterday = DateTime.UtcNow.AddDays(-1);
+        return allRecentApprovals.Count(d => d.StatusCategory == "success" && d.UpdatedAt >= yesterday);
+    }
+
+    private int GetRejectedTodayCount()
+    {
+        var yesterday = DateTime.UtcNow.AddDays(-1);
+        return allRecentApprovals.Count(d => d.StatusCategory == "failure" && d.UpdatedAt >= yesterday);
+    }
+
+    private int GetUniqueEnvironmentCount()
+    {
+        return pendingApprovals.Select(d => d.Environment).Distinct().Count();
+    }
+
+    private string GetTimeAgo(DateTime dateTime)
+    {
+        var timeSpan = DateTime.UtcNow - dateTime;
+        
+        if (timeSpan.TotalDays >= 1)
+            return $"{(int)timeSpan.TotalDays}d";
+        if (timeSpan.TotalHours >= 1)
+            return $"{(int)timeSpan.TotalHours}h";
+        if (timeSpan.TotalMinutes >= 1)
+            return $"{(int)timeSpan.TotalMinutes}m";
+        
+        return "Now";
+    }
+
+    private string GetAgeBadgeClass(DateTime createdAt)
+    {
+        var age = DateTime.UtcNow - createdAt;
+        
+        if (age.TotalHours >= 24) return "bg-danger";
+        if (age.TotalHours >= 6) return "bg-warning";
+        if (age.TotalHours >= 1) return "bg-info";
+        return "bg-success";
+    }
+
+    private string GetPriority(string environment, DateTime createdAt)
+    {
+        var age = DateTime.UtcNow - createdAt;
+        var isProduction = environment.ToLower() == "production";
+        
+        if (isProduction && age.TotalHours >= 2) return "Critical";
+        if (isProduction) return "High";
+        if (age.TotalHours >= 24) return "High";
+        if (age.TotalHours >= 6) return "Medium";
+        return "Low";
+    }
+
+    private string GetPriorityBadgeClass(string environment, DateTime createdAt)
+    {
+        var priority = GetPriority(environment, createdAt);
+        return priority switch
+        {
+            "Critical" => "bg-danger",
+            "High" => "bg-warning",
+            "Medium" => "bg-info",
+            _ => "bg-secondary"
+        };
+    }
+}

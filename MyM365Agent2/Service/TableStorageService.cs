@@ -31,6 +31,7 @@ namespace MyM365Agent2.Services
         public string workflowPath { get; set; }
         public string workflowRunId { get; set; }
         public string workflowUrl { get; set; }
+        public string environment { get; set; } // Add environment field
 
         // JSON string properties (these contain JSON data)
         public string deploymentHistory { get; set; }
@@ -49,19 +50,14 @@ namespace MyM365Agent2.Services
 
                 // Direct string mappings
                 CurrentStatus = currentStatus,
-                DeploymentId = deploymentId,
                 EventType = eventType,
-                LastStatusUpdate = lastStatusUpdate,
                 Note = note,
                 Repository = repository,
-                RunNumber = runNumber,
-                RunStartedAt = runStartedAt,
                 RunStatus = runStatus,
                 RunUrl = runUrl,
                 TriggerEvent = triggerEvent,
                 WorkflowName = workflowName,
                 WorkflowPath = workflowPath,
-                WorkflowRunId = workflowRunId,
                 WorkflowUrl = workflowUrl,
 
                 // JSON string mappings (clean up escaped quotes)
@@ -69,6 +65,22 @@ namespace MyM365Agent2.Services
                 JobHistory = CleanJsonString(jobHistory),
                 StatusHistory = CleanJsonString(statusHistory)
             };
+
+            // Handle JsonElement properties with proper conversion
+            if (!string.IsNullOrEmpty(deploymentId))
+                deployment.DeploymentId = deploymentId;
+
+            if (!string.IsNullOrEmpty(lastStatusUpdate))
+                deployment.LastStatusUpdate = lastStatusUpdate;
+
+            if (!string.IsNullOrEmpty(runNumber))
+                deployment.RunNumber = runNumber;
+
+            if (!string.IsNullOrEmpty(runStartedAt))
+                deployment.RunStartedAt = runStartedAt;
+
+            if (!string.IsNullOrEmpty(workflowRunId))
+                deployment.WorkflowRunId = workflowRunId;
 
             return deployment;
         }
@@ -79,6 +91,51 @@ namespace MyM365Agent2.Services
 
             // Handle double-escaped quotes from CSV export
             return jsonValue.Replace("\"\"", "\"");
+        }
+
+        // Convert from DeploymentState for updates
+        public static RawDeploymentEntity FromDeploymentState(DeploymentState deployment)
+        {
+            return new RawDeploymentEntity
+            {
+                PartitionKey = deployment.PartitionKey,
+                RowKey = deployment.RowKey,
+                Timestamp = deployment.Timestamp,
+                ETag = deployment.ETag,
+
+                currentStatus = deployment.CurrentStatus,
+                deploymentId = deployment.DeploymentId,
+                eventType = deployment.EventType,
+                lastStatusUpdate = deployment.LastStatusUpdate,
+                note = deployment.Note,
+                repository = deployment.Repository,
+                runNumber = deployment.RunNumber,
+                runStartedAt = deployment.RunStartedAt,
+                runStatus = deployment.RunStatus,
+                runUrl = deployment.RunUrl,
+                triggerEvent = deployment.TriggerEvent,
+                workflowName = deployment.WorkflowName,
+                workflowPath = deployment.WorkflowPath,
+                workflowRunId = deployment.WorkflowRunId,
+                workflowUrl = deployment.WorkflowUrl,
+                environment = deployment.Environment,
+
+                deploymentHistory = deployment.DeploymentHistory,
+                jobHistory = deployment.JobHistory,
+                statusHistory = deployment.StatusHistory
+            };
+        }
+
+        private static string GetStringFromJsonElement(JsonElement element)
+        {
+            return element.ValueKind switch
+            {
+                JsonValueKind.String => element.GetString(),
+                JsonValueKind.Number => element.GetRawText(),
+                JsonValueKind.Null => null,
+                JsonValueKind.Undefined => null,
+                _ => element.ToString()
+            };
         }
     }
 
@@ -107,6 +164,14 @@ namespace MyM365Agent2.Services
         Task<Dictionary<string, int>> GetDeploymentStatisticsWithFiltersAsync(string repository = null, string environment = null);
         Task<List<DeploymentState>> GetWorkflowRunsForRepositoryAsync(string repository, int limit = 50);
         Task<Dictionary<string, List<DeploymentState>>> GetLatestDeploymentsByEnvironmentAsync(string repository = null);
+
+        // Approval workflow methods
+        Task<bool> UpdateDeploymentAsync(DeploymentState deployment);
+        Task<bool> UpdateDeploymentStatusAsync(string repository, string deploymentId, string newStatus, string approver, string comment = null);
+        Task<DeploymentState> GetRelatedDeploymentAsync(string repository, string workflowRunId, bool getProtectionRule = false);
+        Task<List<DeploymentState>> GetPendingApprovalsByEnvironmentAsync(string environment = null);
+        Task<bool> ApproveDeploymentAsync(string repository, string deploymentId, string approver, string comment = null);
+        Task<bool> RejectDeploymentAsync(string repository, string deploymentId, string approver, string comment = null);
 
         // Diagnostic methods
         Task<bool> TestConnectionAsync();
@@ -280,7 +345,7 @@ namespace MyM365Agent2.Services
 
         #endregion
 
-        #region Public Methods
+        #region Core Methods
 
         public async Task<List<DeploymentState>> GetDeploymentsAsync(string repository = null)
         {
@@ -492,7 +557,10 @@ namespace MyM365Agent2.Services
             }
         }
 
-        // Implement the remaining methods...
+        #endregion
+
+        #region Filter and Query Methods
+
         public async Task<List<DeploymentState>> GetDeploymentsByEnvironmentAsync(string environment)
         {
             var allDeployments = await GetDeploymentsFromRawEntitiesAsync();
@@ -608,13 +676,292 @@ namespace MyM365Agent2.Services
                 .ToList();
         }
 
-        // Simplified implementations for remaining interface methods
-        public Task<List<string>> GetAvailableEnvironmentsForRepositoryAsync(string repository) => throw new NotImplementedException();
-        public Task<Dictionary<string, int>> GetDeploymentStatisticsForRepoAsync(string repository) => throw new NotImplementedException();
-        public Task<Dictionary<string, int>> GetDeploymentStatisticsForEnvironmentAsync(string environment) => throw new NotImplementedException();
-        public Task<Dictionary<string, int>> GetDeploymentStatisticsWithFiltersAsync(string repository = null, string environment = null) => throw new NotImplementedException();
-        public Task<List<DeploymentState>> GetWorkflowRunsForRepositoryAsync(string repository, int limit = 50) => throw new NotImplementedException();
-        public Task<Dictionary<string, List<DeploymentState>>> GetLatestDeploymentsByEnvironmentAsync(string repository = null) => throw new NotImplementedException();
+        public async Task<List<string>> GetAvailableEnvironmentsForRepositoryAsync(string repository)
+        {
+            var allDeployments = await GetDeploymentsFromRawEntitiesAsync();
+            return allDeployments
+                .Where(d => d.Repository.Equals(repository, StringComparison.OrdinalIgnoreCase))
+                .Select(d => d.Environment)
+                .Where(e => !string.IsNullOrEmpty(e))
+                .Distinct()
+                .OrderBy(e => e)
+                .ToList();
+        }
+
+        public async Task<Dictionary<string, int>> GetDeploymentStatisticsForRepoAsync(string repository)
+        {
+            var statistics = new Dictionary<string, int>
+            {
+                { "success", 0 }, { "failure", 0 }, { "pending", 0 },
+                { "in_progress", 0 }, { "cancelled", 0 }, { "total", 0 }
+            };
+
+            var allDeployments = await GetDeploymentsFromRawEntitiesAsync();
+            var repoDeployments = allDeployments.Where(d => d.Repository.Equals(repository, StringComparison.OrdinalIgnoreCase));
+
+            foreach (var deployment in repoDeployments)
+            {
+                statistics["total"]++;
+                var category = deployment.StatusCategory;
+                if (statistics.ContainsKey(category))
+                {
+                    statistics[category]++;
+                }
+            }
+
+            return statistics;
+        }
+
+        public async Task<Dictionary<string, int>> GetDeploymentStatisticsForEnvironmentAsync(string environment)
+        {
+            var statistics = new Dictionary<string, int>
+            {
+                { "success", 0 }, { "failure", 0 }, { "pending", 0 },
+                { "in_progress", 0 }, { "cancelled", 0 }, { "total", 0 }
+            };
+
+            var allDeployments = await GetDeploymentsFromRawEntitiesAsync();
+            var envDeployments = allDeployments.Where(d => d.Environment.Equals(environment, StringComparison.OrdinalIgnoreCase));
+
+            foreach (var deployment in envDeployments)
+            {
+                statistics["total"]++;
+                var category = deployment.StatusCategory;
+                if (statistics.ContainsKey(category))
+                {
+                    statistics[category]++;
+                }
+            }
+
+            return statistics;
+        }
+
+        public async Task<Dictionary<string, int>> GetDeploymentStatisticsWithFiltersAsync(string repository = null, string environment = null)
+        {
+            var statistics = new Dictionary<string, int>
+            {
+                { "success", 0 }, { "failure", 0 }, { "pending", 0 },
+                { "in_progress", 0 }, { "cancelled", 0 }, { "total", 0 }
+            };
+
+            var filteredDeployments = await GetDeploymentsWithFiltersAsync(repository, environment);
+
+            foreach (var deployment in filteredDeployments)
+            {
+                statistics["total"]++;
+                var category = deployment.StatusCategory;
+                if (statistics.ContainsKey(category))
+                {
+                    statistics[category]++;
+                }
+            }
+
+            return statistics;
+        }
+
+        public async Task<List<DeploymentState>> GetWorkflowRunsForRepositoryAsync(string repository, int limit = 50)
+        {
+            var allDeployments = await GetDeploymentsFromRawEntitiesAsync();
+            return allDeployments
+                .Where(d => d.Repository.Equals(repository, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(d => d.CreatedAt)
+                .Take(limit)
+                .ToList();
+        }
+
+        public async Task<Dictionary<string, List<DeploymentState>>> GetLatestDeploymentsByEnvironmentAsync(string repository = null)
+        {
+            var deploymentsByEnv = new Dictionary<string, List<DeploymentState>>();
+            var allDeployments = await GetDeploymentsFromRawEntitiesAsync();
+
+            var filteredDeployments = string.IsNullOrEmpty(repository)
+                ? allDeployments
+                : allDeployments.Where(d => d.Repository.Equals(repository, StringComparison.OrdinalIgnoreCase));
+
+            foreach (var deployment in filteredDeployments)
+            {
+                var env = deployment.Environment;
+                if (string.IsNullOrEmpty(env)) continue;
+
+                if (!deploymentsByEnv.ContainsKey(env))
+                {
+                    deploymentsByEnv[env] = new List<DeploymentState>();
+                }
+                deploymentsByEnv[env].Add(deployment);
+            }
+
+            // Get latest deployment for each environment
+            foreach (var env in deploymentsByEnv.Keys.ToList())
+            {
+                deploymentsByEnv[env] = deploymentsByEnv[env]
+                    .OrderByDescending(d => d.CreatedAt)
+                    .Take(5)
+                    .ToList();
+            }
+
+            return deploymentsByEnv;
+        }
+
+        #endregion
+
+        #region Approval Workflow Methods
+
+        public async Task<bool> UpdateDeploymentAsync(DeploymentState deployment)
+        {
+            try
+            {
+                _logger.LogInformation($"Updating deployment: {deployment.Repository}/{deployment.RowKey}");
+
+                var rawEntity = RawDeploymentEntity.FromDeploymentState(deployment);
+                rawEntity.Timestamp = DateTimeOffset.UtcNow;
+
+                await _tableClient.UpdateEntityAsync(rawEntity, ETag.All);
+
+                _logger.LogInformation($"Successfully updated deployment: {deployment.Repository}/{deployment.RowKey}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error updating deployment: {deployment.Repository}/{deployment.RowKey}");
+                return false;
+            }
+        }
+
+        public async Task<bool> UpdateDeploymentStatusAsync(string repository, string deploymentId, string newStatus, string approver, string comment = null)
+        {
+            try
+            {
+                _logger.LogInformation($"Updating deployment status: {repository}/{deploymentId} to {newStatus}");
+
+                var deployment = await GetDeploymentAsync(repository, deploymentId);
+                if (deployment == null)
+                {
+                    _logger.LogWarning($"Deployment not found for status update: {repository}/{deploymentId}");
+                    return false;
+                }
+
+                // Parse existing status history
+                var statusItems = new List<StatusHistoryItem>();
+                if (!string.IsNullOrEmpty(deployment.StatusHistory))
+                {
+                    try
+                    {
+                        var existing = JsonSerializer.Deserialize<StatusHistoryItem[]>(deployment.StatusHistory);
+                        if (existing != null)
+                            statusItems.AddRange(existing);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, $"Error parsing existing status history for {deploymentId}");
+                    }
+                }
+
+                // Add new status update
+                var statusUpdate = new StatusHistoryItem
+                {
+                    Creator = approver,
+                    State = newStatus,
+                    Description = comment ?? $"Status updated to {newStatus}",
+                    Environment = deployment.Environment,
+                    LogUrl = deployment.WorkflowRunUrl,
+                    UpdatedAt = DateTimeOffset.UtcNow.ToString("O")
+                };
+
+                statusItems.Add(statusUpdate);
+
+                // Update deployment
+                deployment.CurrentStatus = newStatus;
+                deployment.StatusHistory = JsonSerializer.Serialize(statusItems);
+                deployment.LastStatusUpdate = DateTimeOffset.UtcNow.ToString("O");
+
+                var success = await UpdateDeploymentAsync(deployment);
+                if (success)
+                {
+                    _logger.LogInformation($"Successfully updated deployment status: {repository}/{deploymentId} to {newStatus}");
+                }
+
+                return success;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error updating deployment status: {repository}/{deploymentId}");
+                return false;
+            }
+        }
+
+        public async Task<DeploymentState> GetRelatedDeploymentAsync(string repository, string workflowRunId, bool getProtectionRule = false)
+        {
+            try
+            {
+                var relatedRowKey = getProtectionRule
+                    ? $"{workflowRunId}_protection_rule"
+                    : $"{workflowRunId}_deployment";
+
+                _logger.LogInformation($"Fetching related deployment: {repository}/{relatedRowKey}");
+
+                return await GetDeploymentAsync(repository, relatedRowKey);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error fetching related deployment: {repository}/{workflowRunId}");
+                return null;
+            }
+        }
+
+        public async Task<List<DeploymentState>> GetPendingApprovalsByEnvironmentAsync(string environment = null)
+        {
+            try
+            {
+                _logger.LogInformation($"Fetching pending approvals for environment: {environment ?? "all"}");
+
+                var allDeployments = await GetDeploymentsFromRawEntitiesAsync();
+
+                var pendingApprovals = allDeployments
+                    .Where(d => IsProtectionRuleEntry(d.RowKey))
+                    .Where(d => IsPendingStatus(d.StatusCategory) || IsPendingStatus(d.State))
+                    .Where(d => string.IsNullOrEmpty(environment) || d.Environment.Equals(environment, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(d => d.CreatedAt)
+                    .ToList();
+
+                _logger.LogInformation($"Found {pendingApprovals.Count} pending approvals");
+                return pendingApprovals;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error fetching pending approvals for environment: {environment}");
+                throw;
+            }
+        }
+
+        public async Task<bool> ApproveDeploymentAsync(string repository, string deploymentId, string approver, string comment = null)
+        {
+            return await UpdateDeploymentStatusAsync(repository, deploymentId, "approved", approver, comment ?? "Deployment approved");
+        }
+
+        public async Task<bool> RejectDeploymentAsync(string repository, string deploymentId, string approver, string comment = null)
+        {
+            return await UpdateDeploymentStatusAsync(repository, deploymentId, "rejected", approver, comment ?? "Deployment rejected");
+        }
+
+        #endregion
+
+        #region Helper Methods
+
+        private bool IsProtectionRuleEntry(string rowKey)
+        {
+            return rowKey?.Contains("_protection_rule") == true;
+        }
+
+        private bool IsPendingStatus(string status)
+        {
+            if (string.IsNullOrEmpty(status)) return false;
+
+            var lowerStatus = status.ToLower();
+            return lowerStatus == "pending" ||
+                   lowerStatus == "waiting" ||
+                   lowerStatus.Contains("pending") ||
+                   lowerStatus.Contains("waiting");
+        }
 
         #endregion
     }

@@ -1,5 +1,4 @@
 ﻿@page "/tab"
-@page "/"
 @using MyM365Agent2.Common.Models
 @using MyM365Agent2.Services
 @using MyM365Agent2.Components
@@ -7,10 +6,7 @@
 @inject IAzureTableStorageService StorageService
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
-@inject ILogger<Index> Logger
 @implements IDisposable
-
-<PageTitle>GitHub Actions Dashboard</PageTitle>
 
 <div class="container-fluid">
     <!-- Header Section -->
@@ -21,24 +17,10 @@
                     <div>
                         <h1 class="display-5 mb-2">GitHub Actions Dashboard</h1>
                         <p class="lead mb-0">Monitor and track GitHub Action deployments across repositories and environments</p>
-                        @if (lastRefresh.HasValue)
-                        {
-                            <small class="text-muted">
-                                <i class="oi oi-clock me-1" aria-hidden="true"></i>
-                                Last updated: @lastRefresh.Value.ToString("HH:mm:ss")
-                            </small>
-                        }
                     </div>
                     <div class="text-end">
-                        <button class="btn btn-primary" @onclick="RefreshData" disabled="@isRefreshing" aria-label="Refresh deployment data">
-                            @if (isRefreshing)
-                            {
-                                <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                            }
-                            else
-                            {
-                                <i class="oi oi-reload me-2" aria-hidden="true"></i>
-                            }
+                        <button class="btn btn-primary" @onclick="RefreshData">
+                            <i class="oi oi-reload me-2"></i>
                             Refresh
                         </button>
                     </div>
@@ -47,14 +29,43 @@
         </div>
     </div>
 
-    @if (errorMessage != null)
+    <!-- Pending Approvals Alert -->
+    @if (!isLoading && pendingApprovals.Any())
     {
         <div class="row mb-4">
             <div class="col-12">
-                <div class="alert alert-warning alert-dismissible fade show" role="alert">
-                    <i class="oi oi-warning me-2" aria-hidden="true"></i>
-                    <strong>Warning:</strong> @errorMessage
-                    <button type="button" class="btn-close" @onclick="ClearError" aria-label="Close error message"></button>
+                <div class="alert alert-warning alert-dismissible">
+                    <div class="d-flex align-items-center">
+                        <i class="oi oi-shield me-3" style="font-size: 1.5rem;"></i>
+                        <div class="flex-grow-1">
+                            <h5 class="alert-heading mb-1">
+                                <i class="oi oi-clock me-1"></i>
+                                Pending Approvals Required
+                            </h5>
+                            <p class="mb-2">
+                                You have <strong>@pendingApprovals.Count deployment@(pendingApprovals.Count == 1 ? "" : "s")</strong> waiting for approval.
+                            </p>
+                            <div class="d-flex flex-wrap gap-2">
+                                @foreach (var approval in pendingApprovals.Take(3))
+                                {
+                                    <button class="btn btn-sm btn-outline-warning" 
+                                            @onclick="() => NavigateToApproval(approval)">
+                                        <i class="oi oi-shield me-1"></i>
+                                        @approval.Repository - @approval.Environment
+                                    </button>
+                                }
+                                @if (pendingApprovals.Count > 3)
+                                {
+                                    <button class="btn btn-sm btn-warning" 
+                                            @onclick='() => Navigation.NavigateTo("/deployments?filter=pending")'>
+                                        <i class="oi oi-plus me-1"></i>
+                                        View All @pendingApprovals.Count
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                        <button type="button" class="btn-close" @onclick="DismissApprovalAlert"></button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -64,24 +75,19 @@
     <RepoEnvironmentSelector 
         SelectedRepository="@selectedRepository"
         SelectedEnvironment="@selectedEnvironment"
-        SelectedRepositoryChanged="@HandleRepositoryChanged"
-        SelectedEnvironmentChanged="@HandleEnvironmentChanged"
+        SelectedRepositoryChanged="@((string repo) => { selectedRepository = repo; })"
+        SelectedEnvironmentChanged="@((string env) => { selectedEnvironment = env; })"
         OnSelectionChanged="@OnFiltersChanged" />
 
     <!-- Loading State -->
     @if (isLoading)
     {
         <div class="row">
-            <div class="col-12">
-                <div class="d-flex justify-content-center align-items-center py-5">
-                    <div class="text-center">
-                        <div class="spinner-border text-primary mb-3" role="status">
-                            <span class="visually-hidden">Loading deployment data...</span>
-                        </div>
-                        <h5 class="text-muted">Loading GitHub Actions deployments...</h5>
-                        <p class="text-muted mb-0">Please wait while we fetch the latest data</p>
-                    </div>
+            <div class="col-12 text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading deployment data...</span>
                 </div>
+                <p class="mt-3 text-muted">Loading GitHub Actions deployments...</p>
             </div>
         </div>
     }
@@ -91,12 +97,12 @@
         <div class="row mb-4">
             <div class="col-12">
                 <h4 class="mb-3">
-                    <i class="oi oi-graph me-2" aria-hidden="true"></i>
+                    <i class="oi oi-graph me-2"></i>
                     Deployment Overview
-                    @if (HasActiveFilters())
+                    @if (!string.IsNullOrEmpty(selectedRepository) || !string.IsNullOrEmpty(selectedEnvironment))
                     {
                         <small class="text-muted">
-                            (@dashboardStats.FilteredCount of @dashboardStats.TotalCount deployments)
+                            (@filteredDeployments.Count of @allDeployments.Count deployments)
                         </small>
                     }
                 </h4>
@@ -106,16 +112,16 @@
         <div class="row mb-4">
             <!-- Total Deployments -->
             <div class="col-lg-3 col-md-6 mb-3">
-                <div class="card text-white bg-primary h-100 hover-scale" role="region" aria-label="Total Actions">
+                <div class="card text-white bg-primary h-100">
                     <div class="card-body">
                         <div class="d-flex justify-content-between">
                             <div>
                                 <h6 class="card-title">Total Actions</h6>
-                                <h2 class="mb-0">@dashboardStats.FilteredCount.ToString("N0")</h2>
+                                <h2 class="mb-0">@filteredDeployments.Count</h2>
                                 <small>GitHub Action runs</small>
                             </div>
                             <div class="align-self-center">
-                                <i class="oi oi-layers" style="font-size: 2rem; opacity: 0.7;" aria-hidden="true"></i>
+                                <i class="oi oi-layers" style="font-size: 2rem; opacity: 0.7;"></i>
                             </div>
                         </div>
                     </div>
@@ -124,16 +130,16 @@
 
             <!-- Successful Deployments -->
             <div class="col-lg-3 col-md-6 mb-3">
-                <div class="card text-white bg-success h-100 hover-scale" role="region" aria-label="Successful Actions">
+                <div class="card text-white bg-success h-100">
                     <div class="card-body">
                         <div class="d-flex justify-content-between">
                             <div>
                                 <h6 class="card-title">Successful</h6>
-                                <h2 class="mb-0">@dashboardStats.SuccessfulCount.ToString("N0")</h2>
-                                <small>@dashboardStats.SuccessRate.ToString("F1")% success rate</small>
+                                <h2 class="mb-0">@GetSuccessfulCount()</h2>
+                                <small>@GetSuccessRate()% success rate</small>
                             </div>
                             <div class="align-self-center">
-                                <i class="oi oi-check" style="font-size: 2rem; opacity: 0.7;" aria-hidden="true"></i>
+                                <i class="oi oi-check" style="font-size: 2rem; opacity: 0.7;"></i>
                             </div>
                         </div>
                     </div>
@@ -142,41 +148,241 @@
 
             <!-- Failed Deployments -->
             <div class="col-lg-3 col-md-6 mb-3">
-                <div class="card text-white bg-danger h-100 hover-scale" role="region" aria-label="Failed Actions">
+                <div class="card text-white bg-danger h-100">
                     <div class="card-body">
                         <div class="d-flex justify-content-between">
                             <div>
                                 <h6 class="card-title">Failed</h6>
-                                <h2 class="mb-0">@dashboardStats.FailedCount.ToString("N0")</h2>
-                                <small>@dashboardStats.FailureRate.ToString("F1")% failure rate</small>
+                                <h2 class="mb-0">@GetFailedCount()</h2>
+                                <small>@GetFailureRate()% failure rate</small>
                             </div>
                             <div class="align-self-center">
-                                <i class="oi oi-x" style="font-size: 2rem; opacity: 0.7;" aria-hidden="true"></i>
+                                <i class="oi oi-x" style="font-size: 2rem; opacity: 0.7;"></i>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Active Deployments -->
+            <!-- Pending Approvals/Active -->
             <div class="col-lg-3 col-md-6 mb-3">
-                <div class="card text-white bg-warning h-100 hover-scale" role="region" aria-label="Active Actions">
+                <div class="card text-white @(pendingApprovals.Any() ? "bg-warning" : "bg-info") h-100">
                     <div class="card-body">
                         <div class="d-flex justify-content-between">
                             <div>
-                                <h6 class="card-title">Active</h6>
-                                <h2 class="mb-0">@dashboardStats.ActiveCount.ToString("N0")</h2>
-                                <small>Running or pending</small>
+                                <h6 class="card-title">
+                                    @if (pendingApprovals.Any())
+                                    {
+                                        <text>Pending Approval</text>
+                                    }
+                                    else
+                                    {
+                                        <text>Active</text>
+                                    }
+                                </h6>
+                                <h2 class="mb-0">
+                                    @if (pendingApprovals.Any())
+                                    {
+                                        @pendingApprovals.Count
+                                    }
+                                    else
+                                    {
+                                        @GetActiveCount()
+                                    }
+                                </h2>
+                                <small>
+                                    @if (pendingApprovals.Any())
+                                    {
+                                        <text>Awaiting approval</text>
+                                    }
+                                    else
+                                    {
+                                        <text>Running or pending</text>
+                                    }
+                                </small>
                             </div>
                             <div class="align-self-center">
-                                <i class="oi oi-clock" style="font-size: 2rem; opacity: 0.7;" aria-hidden="true"></i>
+                                <i class="oi oi-@(pendingApprovals.Any() ? "shield" : "clock")" style="font-size: 2rem; opacity: 0.7;"></i>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
-        
+
+        <!-- Pending Approvals Section -->
+        @if (pendingApprovals.Any() && !dismissedApprovalAlert)
+        {
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card border-warning">
+                        <div class="card-header bg-warning text-dark">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">
+                                    <i class="oi oi-shield me-2"></i>
+                                    Deployments Pending Approval (@pendingApprovals.Count)
+                                </h5>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="DismissApprovalAlert">
+                                    <i class="oi oi-x"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-sm mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>Repository</th>
+                                            <th>Environment</th>
+                                            <th>Workflow</th>
+                                            <th>Requested By</th>
+                                            <th>Waiting Since</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var approval in pendingApprovals.Take(5))
+                                        {
+                                            <tr>
+                                                <td>
+                                                    <i class="oi oi-code me-1"></i>
+                                                    <strong>@approval.Repository</strong>
+                                                </td>
+                                                <td>
+                                                    <span class="badge bg-info">@approval.Environment</span>
+                                                </td>
+                                                <td>@approval.WorkflowDisplayName</td>
+                                                <td>
+                                                    <i class="oi oi-person me-1"></i>
+                                                    @approval.CreatorLogin
+                                                </td>
+                                                <td>
+                                                    <small class="text-muted">
+                                                        @approval.CreatedAt.ToString("MMM dd, HH:mm")
+                                                        <br />
+                                                        @GetTimeAgo(approval.CreatedAt)
+                                                    </small>
+                                                </td>
+                                                <td>
+                                                    <div class="d-flex gap-1">
+                                                        <button class="btn btn-sm btn-success" 
+                                                                @onclick="() => QuickApprove(approval.Repository, approval.RowKey)">
+                                                            <i class="oi oi-check"></i>
+                                                        </button>
+                                                        <button class="btn btn-sm btn-danger" 
+                                                                @onclick="() => QuickReject(approval.Repository, approval.RowKey)">
+                                                            <i class="oi oi-x"></i>
+                                                        </button>
+                                                        <button class="btn btn-sm btn-outline-primary" 
+                                                                @onclick="() => NavigateToApproval(approval)">
+                                                            <i class="oi oi-eye"></i>
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                            @if (pendingApprovals.Count > 5)
+                            {
+                                <div class="text-center mt-3">
+                                    <button class="btn btn-outline-warning"
+                                            @onclick='() => Navigation.NavigateTo($"/deployments?filter={statusFilter}")'>
+                                        <i class="oi oi-list me-2"></i>
+                                        View All @pendingApprovals.Count Pending Approvals
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- Repository Breakdown (when no specific repo selected) -->
+        @if (string.IsNullOrEmpty(selectedRepository) && repositoryStats.Any())
+        {
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                <i class="oi oi-code me-2"></i>
+                                Repository Deployment Summary
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Repository</th>
+                                            <th>Total Runs</th>
+                                            <th>Success Rate</th>
+                                            <th>Recent Activity</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var repoStat in repositoryStats.Take(10))
+                                        {
+                                            <tr>
+                                                <td>
+                                                    <i class="oi oi-code me-2"></i>
+                                                    <strong>@repoStat.Key</strong>
+                                                </td>
+                                                <td>
+                                                    <span class="badge bg-primary">@repoStat.Value["total"]</span>
+                                                </td>
+                                                <td>
+                                                    @{
+                                                        var successRate = repoStat.Value["total"] > 0 
+                                                            ? (repoStat.Value["success"] * 100.0 / repoStat.Value["total"]) 
+                                                            : 0;
+                                                    }
+                                                    <div class="d-flex align-items-center">
+                                                        <div class="progress flex-grow-1 me-2" style="height: 8px;">
+                                                            <div class="progress-bar @(successRate >= 80 ? "bg-success" : successRate >= 60 ? "bg-warning" : "bg-danger")" 
+                                                                 style="width: @(successRate)%"></div>
+                                                        </div>
+                                                        <small class="text-muted">@successRate.ToString("F0")%</small>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    @{
+                                                        var lastDeployment = allDeployments
+                                                            .Where(d => d.Repository == repoStat.Key)
+                                                            .OrderByDescending(d => d.CreatedAt)
+                                                            .FirstOrDefault();
+                                                    }
+                                                    @if (lastDeployment != null)
+                                                    {
+                                                        <span class="badge @GetStateClass(lastDeployment.StatusCategory)">
+                                                            @lastDeployment.DisplayStatus
+                                                        </span>
+                                                        <br />
+                                                        <small class="text-muted">@lastDeployment.CreatedAt.ToString("MMM dd, HH:mm")</small>
+                                                    }
+                                                </td>
+                                                <td>
+                                                    <button class="btn btn-sm btn-outline-primary" 
+                                                            @onclick="() => SelectRepository(repoStat.Key)">
+                                                        <i class="oi oi-eye me-1"></i>
+                                                        View Details
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
         <!-- Recent Deployments -->
         <div class="row">
             <div class="col-12">
@@ -184,7 +390,7 @@
                     <div class="card-header">
                         <div class="d-flex justify-content-between align-items-center">
                             <h5 class="mb-0">
-                                <i class="oi oi-list-rich me-2" aria-hidden="true"></i>
+                                <i class="oi oi-list-rich me-2"></i>
                                 Recent GitHub Actions
                                 @if (!string.IsNullOrEmpty(selectedRepository))
                                 {
@@ -195,34 +401,32 @@
                                     <span class="badge bg-info ms-2">@selectedEnvironment</span>
                                 }
                             </h5>
-                            <div class="d-flex gap-2">
-                                <a href="/deployments" class="btn btn-sm btn-outline-primary" aria-label="View all deployments">
-                                    <i class="oi oi-list me-1" aria-hidden="true"></i>
+                            <div>
+                                <button 
+                                    class="btn btn-sm btn-outline-primary me-2" 
+                                    @onclick='() => Navigation.NavigateTo("/deployments")'>
+                                    <i class="oi oi-list me-1"></i>
                                     View All
-                                </a>
-                                <div class="btn-group btn-group-sm" role="group" aria-label="Filter by status">
+                                </button>
+                                 <div class="btn-group btn-group-sm" role="group">
                                     <button 
                                         class='btn @(statusFilter == "" ? "btn-primary" : "btn-outline-primary")'
-                                        @onclick='() => SetStatusFilter("")'
-                                        aria-pressed="@(statusFilter == "")">
+                                        @onclick='() => SetStatusFilter("")'>
                                         All
                                     </button>
                                     <button 
                                         class='btn @(statusFilter == "success" ? "btn-success" : "btn-outline-success")'
-                                        @onclick='() => SetStatusFilter("success")'
-                                        aria-pressed="@(statusFilter == "success")">
+                                        @onclick='() => SetStatusFilter("success")'>
                                         Success
                                     </button>
                                     <button 
                                         class='btn @(statusFilter == "failure" ? "btn-danger" : "btn-outline-danger")'
-                                        @onclick='() => SetStatusFilter("failure")'
-                                        aria-pressed="@(statusFilter == "failure")">
+                                        @onclick='() => SetStatusFilter("failure")'>
                                         Failed
                                     </button>
                                     <button 
                                         class='btn @(statusFilter == "pending" ? "btn-warning" : "btn-outline-warning")'
-                                        @onclick='() => SetStatusFilter("pending")'
-                                        aria-pressed="@(statusFilter == "pending")">
+                                        @onclick='() => SetStatusFilter("pending")'>
                                         Active
                                     </button>
                                 </div>
@@ -232,49 +436,50 @@
                     <div class="card-body p-0">
                         @if (displayedDeployments.Any())
                         {
-                            <div class="list-group list-group-flush" role="list" aria-label="Recent deployments">
+                            <div class="list-group list-group-flush">
                                 @foreach (var deployment in displayedDeployments.Take(15))
                                 {
-                                    <div class="list-group-item list-group-item-action" role="listitem">
+                                    <div class="list-group-item list-group-item-action">
                                         <div class="d-flex w-100 justify-content-between align-items-start">
                                             <div class="flex-grow-1">
                                                 <div class="d-flex justify-content-between align-items-center mb-2">
                                                     <h6 class="mb-0 fw-bold">
-                                                        <i class="oi oi-code me-2 text-primary" aria-hidden="true"></i>
+                                                        <i class="oi oi-code me-2 text-primary"></i>
                                                         @deployment.Repository
                                                         @if (!string.IsNullOrEmpty(deployment.WorkflowDisplayName))
                                                         {
                                                             <span class="text-muted"> / @deployment.WorkflowDisplayName</span>
                                                         }
+                                                        @if (IsProtectionRuleEntry(deployment))
+                                                        {
+                                                            <span class="badge bg-warning ms-2">
+                                                                <i class="oi oi-shield"></i> Approval
+                                                            </span>
+                                                        }
                                                     </h6>
-                                                    <small class="text-muted">
-                                                        <time datetime="@deployment.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ss")">
-                                                            @deployment.CreatedAt.ToString("MMM dd, HH:mm")
-                                                        </time>
-                                                    </small>
+                                                    <small class="text-muted">@deployment.CreatedAt.ToString("MMM dd, HH:mm")</small>
                                                 </div>
                                                 
                                                 <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
                                                     <span class="badge bg-info">
-                                                        <i class="oi oi-globe me-1" aria-hidden="true"></i>
+                                                        <i class="oi oi-globe me-1"></i>
                                                         @deployment.Environment
                                                     </span>
-                                                    <span class="badge @GetStateClass(deployment.StatusCategory)" 
-                                                          aria-label="Status: @deployment.DisplayStatus">
-                                                        <i class="oi oi-@GetStateIcon(deployment.StatusCategory) me-1" aria-hidden="true"></i>
+                                                    <span class="badge @GetStateClass(deployment.StatusCategory)">
+                                                        <i class="oi oi-@GetStateIcon(deployment.StatusCategory) me-1"></i>
                                                         @deployment.DisplayStatus
                                                     </span>
                                                     @if (!string.IsNullOrEmpty(deployment.Branch))
                                                     {
                                                         <span class="badge bg-secondary">
-                                                            <i class="oi oi-fork me-1" aria-hidden="true"></i>
+                                                            <i class="oi oi-fork me-1"></i>
                                                             @deployment.Branch
                                                         </span>
                                                     }
                                                     @if (!string.IsNullOrEmpty(deployment.RunNumberDisplay) && deployment.RunNumberDisplay != "N/A")
                                                     {
                                                         <span class="badge bg-light text-dark">
-                                                            <i class="oi oi-tag me-1" aria-hidden="true"></i>
+                                                            <i class="oi oi-tag me-1"></i>
                                                             Run #@deployment.RunNumberDisplay
                                                         </span>
                                                     }
@@ -282,20 +487,20 @@
                                                 
                                                 <div class="d-flex flex-wrap align-items-center gap-3 text-muted">
                                                     <small>
-                                                        <i class="oi oi-person me-1" aria-hidden="true"></i>
+                                                        <i class="oi oi-person me-1"></i>
                                                         @deployment.CreatorLogin
                                                     </small>
                                                     @if (!string.IsNullOrEmpty(deployment.FormattedDuration))
                                                     {
                                                         <small>
-                                                            <i class="oi oi-clock me-1" aria-hidden="true"></i>
+                                                            <i class="oi oi-clock me-1"></i>
                                                             @deployment.FormattedDuration
                                                         </small>
                                                     }
                                                     @if (!string.IsNullOrEmpty(deployment.TriggerType))
                                                     {
                                                         <small>
-                                                            <i class="oi oi-flash me-1" aria-hidden="true"></i>
+                                                            <i class="oi oi-flash me-1"></i>
                                                             @deployment.TriggerType
                                                         </small>
                                                     }
@@ -303,23 +508,27 @@
                                             </div>
                                             
                                             <div class="ms-3 d-flex flex-column gap-1">
+                                                @if (IsPendingApproval(deployment))
+                                                {
+                                                    <button class="btn btn-sm btn-warning" 
+                                                            @onclick="() => NavigateToApproval(deployment)">
+                                                        <i class="oi oi-shield me-1"></i>
+                                                        Approve
+                                                    </button>
+                                                }
                                                 @if (!string.IsNullOrEmpty(deployment.WorkflowRunUrl))
                                                 {
-                                                    <a href="@deployment.WorkflowRunUrl" 
-                                                       target="_blank" 
-                                                       rel="noopener noreferrer"
-                                                       class="btn btn-sm btn-outline-primary"
-                                                       aria-label="View @deployment.Repository run on GitHub">
-                                                        <i class="oi oi-external-link me-1" aria-hidden="true"></i>
+                                                    <a href="@deployment.WorkflowRunUrl" target="_blank" class="btn btn-sm btn-outline-primary">
+                                                        <i class="oi oi-external-link me-1"></i>
                                                         GitHub
                                                     </a>
                                                 }
-                                                <a href="@GetDetailsUrl(deployment)" 
-                                                   class="btn btn-sm btn-primary"
-                                                   aria-label="View details for @deployment.Repository deployment">
-                                                    <i class="oi oi-eye me-1" aria-hidden="true"></i>
-                                                    Details
-                                                </a>
+                                            <button 
+                                                class="btn btn-sm btn-primary"
+                                                @onclick="@(() => Navigation.NavigateTo(GetDetailsUrl(deployment)))">
+                                              <i class="oi oi-eye me-1"></i>
+                                              Details
+                                            </button>
                                             </div>
                                         </div>
                                     </div>
@@ -329,22 +538,21 @@
                             @if (displayedDeployments.Count > 15)
                             {
                                 <div class="card-footer text-center">
-                                    <a href="/deployments" 
-                                       class="btn btn-outline-primary"
-                                       aria-label="View all @displayedDeployments.Count deployments">
-                                        <i class="oi oi-list me-2" aria-hidden="true"></i>
-                                        View All @displayedDeployments.Count.ToString("N0") Deployments
-                                    </a>
+                                    <button class="btn btn-outline-primary"
+                                            @onclick='() => Navigation.NavigateTo("/deployments")'>
+                                      <i class="oi oi-list me-2"></i>
+                                      View All @displayedDeployments.Count Deployments
+                                    </button>
                                 </div>
                             }
                         }
                         else
                         {
                             <div class="text-center py-5">
-                                <i class="oi oi-info mb-3 text-muted" style="font-size: 3rem;" aria-hidden="true"></i>
+                                <i class="oi oi-info mb-3 text-muted" style="font-size: 3rem;"></i>
                                 <h5 class="text-muted">No GitHub Actions Found</h5>
                                 <p class="text-muted mb-0">
-                                    @if (HasActiveFilters())
+                                    @if (!string.IsNullOrEmpty(selectedRepository) || !string.IsNullOrEmpty(selectedEnvironment))
                                     {
                                         <text>No deployments match your current filters. Try adjusting your selection.</text>
                                     }
@@ -363,70 +571,44 @@
 </div>
 
 @code {
-    // State management
-    private DashboardState dashboardState = new();
     private List<DeploymentState> allDeployments = new();
     private List<DeploymentState> filteredDeployments = new();
     private List<DeploymentState> displayedDeployments = new();
+    private List<DeploymentState> pendingApprovals = new();
     private Dictionary<string, Dictionary<string, int>> repositoryStats = new();
     
-    // Computed stats
-    private DashboardStats dashboardStats = new();
-    
-    // UI state
     private string selectedRepository = "";
     private string selectedEnvironment = "";
-    private string statusFilter = "";
-    private string? errorMessage = null;
     private bool isLoading = true;
-    private bool isRefreshing = false;
-    private DateTime? lastRefresh = null;
-    
-    // Timer management
-    private Timer? refreshTimer;
-    private readonly object timerLock = new();
-    private bool isDisposed = false;
+    private bool dismissedApprovalAlert = false;
+    private Timer refreshTimer;
+    string statusFilter = "pending";
 
     protected override async Task OnInitializedAsync()
     {
-        try
-        {
-            await LoadData();
-            SetupAutoRefresh();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to initialize dashboard");
-            errorMessage = "Failed to load initial data. Please try refreshing the page.";
-        }
+        await LoadData();
+        SetupAutoRefresh();
     }
 
-    #region Data Loading and Management
+    string GetDetailsUrl(DeploymentState d) 
+        => $"/deployments/{d.Repository}/{d.RowKey}";
 
     private async Task LoadData()
     {
         isLoading = true;
-        errorMessage = null;
-        
         try
         {
-            var deploymentsTask = StorageService.GetDeploymentsAsync();
-            var statsTask       = StorageService.GetRepositoryStatisticsAsync();
-            await Task.WhenAll(deploymentsTask, statsTask);
+            allDeployments = await StorageService.GetDeploymentsAsync();
+            repositoryStats = await StorageService.GetRepositoryStatisticsAsync();
             
-            allDeployments = await deploymentsTask;
-            repositoryStats = await statsTask;
+            // Load pending approvals
+            pendingApprovals = await StorageService.GetPendingApprovalsByEnvironmentAsync();
             
             ApplyFilters();
-            CalculateDashboardStats();
-            lastRefresh = DateTime.Now;
-            
-            Logger.LogInformation("Dashboard data loaded successfully. {DeploymentCount} deployments found.", allDeployments.Count);
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to load dashboard data");
-            errorMessage = "Failed to load deployment data. Please check your connection and try again.";
+            Console.WriteLine($"Error loading data: {ex.Message}");
         }
         finally
         {
@@ -434,119 +616,22 @@
         }
     }
 
-    private void CalculateDashboardStats()
-    {
-        dashboardStats = new DashboardStats
-        {
-            TotalCount = allDeployments.Count,
-            FilteredCount = filteredDeployments.Count,
-            SuccessfulCount = filteredDeployments.Count(d => d.StatusCategory == "success"),
-            FailedCount = filteredDeployments.Count(d => d.StatusCategory == "failure"),
-            ActiveCount = filteredDeployments.Count(d => d.StatusCategory == "pending" || d.StatusCategory == "in_progress")
-        };
-
-        if (dashboardStats.FilteredCount > 0)
-        {
-            dashboardStats.SuccessRate = (double)dashboardStats.SuccessfulCount / dashboardStats.FilteredCount * 100;
-            dashboardStats.FailureRate = (double)dashboardStats.FailedCount / dashboardStats.FilteredCount * 100;
-        }
-    }
-
-    #endregion
-
-    #region Timer Management
-
     private void SetupAutoRefresh()
     {
-        lock (timerLock)
+        refreshTimer = new Timer(60000); // Refresh every minute
+        refreshTimer.Elapsed += async (sender, e) => await InvokeAsync(async () =>
         {
-            if (isDisposed) return;
-            
-            refreshTimer?.Dispose();
-            refreshTimer = new Timer(60000); // Refresh every minute
-            refreshTimer.Elapsed += OnTimerElapsed;
-            refreshTimer.Start();
-            
-            Logger.LogDebug("Auto-refresh timer started");
-        }
-    }
-
-    private async void OnTimerElapsed(object? sender, ElapsedEventArgs e)
-    {
-        if (isDisposed || isLoading || isRefreshing) return;
-        
-        try
-        {
-            await InvokeAsync(async () =>
-            {
-                isRefreshing = true;
-                StateHasChanged();
-                
-                await LoadData();
-                StateHasChanged();
-            });
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Auto-refresh failed");
-            // Don't show error to user for auto-refresh failures
-        }
-        finally
-        {
-            isRefreshing = false;
-        }
-    }
-
-    #endregion
-
-    #region Event Handlers
-
-    private async Task HandleRepositoryChanged(string repository)
-    {
-        selectedRepository = repository;
-        await OnFiltersChanged();
-    }
-
-    private async Task HandleEnvironmentChanged(string environment)
-    {
-        selectedEnvironment = environment;
-        await OnFiltersChanged();
+            await LoadData();
+            StateHasChanged();
+        });
+        refreshTimer.Start();
     }
 
     private async Task OnFiltersChanged()
     {
         ApplyFilters();
-        CalculateDashboardStats();
         await InvokeAsync(StateHasChanged);
-        
-        Logger.LogDebug("Filters changed: Repository={Repository}, Environment={Environment}", 
-            selectedRepository, selectedEnvironment);
     }
-
-    private async Task RefreshData()
-    {
-        if (isRefreshing) return;
-        
-        isRefreshing = true;
-        
-        try
-        {
-            await LoadData();
-        }
-        finally
-        {
-            isRefreshing = false;
-        }
-    }
-
-    private void ClearError()
-    {
-        errorMessage = null;
-    }
-
-    #endregion
-
-    #region Filter and Display Logic
 
     private void ApplyFilters()
     {
@@ -554,16 +639,12 @@
 
         if (!string.IsNullOrEmpty(selectedRepository))
         {
-            filteredDeployments = filteredDeployments.Where(d => 
-                string.Equals(d.Repository, selectedRepository, StringComparison.OrdinalIgnoreCase))
-                .ToList();
+            filteredDeployments = filteredDeployments.Where(d => d.Repository == selectedRepository).ToList();
         }
 
         if (!string.IsNullOrEmpty(selectedEnvironment))
         {
-            filteredDeployments = filteredDeployments.Where(d => 
-                string.Equals(d.Environment, selectedEnvironment, StringComparison.OrdinalIgnoreCase))
-                .ToList();
+            filteredDeployments = filteredDeployments.Where(d => d.Environment == selectedEnvironment).ToList();
         }
 
         ApplyStatusFilter();
@@ -575,21 +656,10 @@
 
         if (!string.IsNullOrEmpty(statusFilter))
         {
-            if (statusFilter == "pending")
-            {
-                displayedDeployments = displayedDeployments.Where(d => 
-                    d.StatusCategory == "pending" || d.StatusCategory == "in_progress").ToList();
-            }
-            else
-            {
-                displayedDeployments = displayedDeployments.Where(d => 
-                    d.StatusCategory == statusFilter).ToList();
-            }
+            displayedDeployments = displayedDeployments.Where(d => d.StatusCategory == statusFilter).ToList();
         }
 
-        displayedDeployments = displayedDeployments
-            .OrderByDescending(d => d.CreatedAt)
-            .ToList();
+        displayedDeployments = displayedDeployments.OrderByDescending(d => d.CreatedAt).ToList();
     }
 
     private void SetStatusFilter(string filter)
@@ -601,97 +671,139 @@
     private void SelectRepository(string repository)
     {
         selectedRepository = repository;
-        _ = OnFiltersChanged();
+        OnFiltersChanged();
     }
 
-    #endregion
-
-    #region Helper Methods
-
-    private bool HasActiveFilters() => 
-        !string.IsNullOrEmpty(selectedRepository) || 
-        !string.IsNullOrEmpty(selectedEnvironment);
-
-    private string GetDetailsUrl(DeploymentState deployment) => 
-        $"/deployments/{deployment.Repository}/{deployment.RowKey}";
-
-    private double CalculateSuccessRate(Dictionary<string, int> stats)
+    private async Task RefreshData()
     {
-        var total = stats.GetValueOrDefault("total", 0);
-        var success = stats.GetValueOrDefault("success", 0);
-        return total > 0 ? Math.Round((double)success / total * 100, 1) : 0;
+        await LoadData();
     }
 
-    private string GetSuccessRateClass(double successRate) => successRate switch
+    private void DismissApprovalAlert()
     {
-        >= 80 => "bg-success",
-        >= 60 => "bg-warning",
-        _ => "bg-danger"
-    };
+        dismissedApprovalAlert = true;
+    }
 
-    private DeploymentState? GetLastDeploymentForRepo(string repository) =>
-        allDeployments
-            .Where(d => string.Equals(d.Repository, repository, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(d => d.CreatedAt)
-            .FirstOrDefault();
-
-    private string GetStateClass(string statusCategory) => statusCategory?.ToLower() switch
+    private void NavigateToApproval(DeploymentState deployment)
     {
-        "success" => "bg-success",
-        "failure" => "bg-danger",
-        "pending" => "bg-warning",
-        "in_progress" => "bg-info",
-        "cancelled" => "bg-secondary",
-        _ => "bg-secondary"
-    };
+        Navigation.NavigateTo($"/deployments/{deployment.Repository}/{deployment.RowKey}");
+    }
 
-    private string GetStateIcon(string statusCategory) => statusCategory?.ToLower() switch
+    private async Task QuickApprove(string repository, string deploymentId)
     {
-        "success" => "check",
-        "failure" => "x",
-        "pending" => "clock",
-        "in_progress" => "reload",
-        "cancelled" => "ban",
-        _ => "question-mark"
-    };
+        try
+        {
+            var success = await StorageService.ApproveDeploymentAsync(repository, deploymentId, "Dashboard User", "Quick approval from dashboard");
+            if (success)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Deployment approved successfully!");
+                await LoadData(); // Refresh to update the list
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Failed to approve deployment. Please try again.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error approving deployment: {ex.Message}");
+        }
+    }
 
-    #endregion
+    private async Task QuickReject(string repository, string deploymentId)
+    {
+        try
+        {
+            var success = await StorageService.RejectDeploymentAsync(repository, deploymentId, "Dashboard User", "Quick rejection from dashboard");
+            if (success)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Deployment rejected successfully!");
+                await LoadData(); // Refresh to update the list
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Failed to reject deployment. Please try again.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error rejecting deployment: {ex.Message}");
+        }
+    }
 
-    #region Disposal
+    private bool IsProtectionRuleEntry(DeploymentState deployment)
+    {
+        return deployment?.RowKey?.Contains("_protection_rule") == true;
+    }
+
+    private bool IsPendingApproval(DeploymentState deployment)
+    {
+        if (deployment == null) return false;
+        
+        var status = deployment.StatusCategory.ToLower();
+        return (status == "pending" || status == "waiting" || deployment.State.ToLower().Contains("pending")) 
+               && IsProtectionRuleEntry(deployment);
+    }
+
+    private string GetTimeAgo(DateTime dateTime)
+    {
+        var timeSpan = DateTime.UtcNow - dateTime;
+        
+        if (timeSpan.TotalDays >= 1)
+            return $"{(int)timeSpan.TotalDays} day{((int)timeSpan.TotalDays == 1 ? "" : "s")} ago";
+        if (timeSpan.TotalHours >= 1)
+            return $"{(int)timeSpan.TotalHours} hour{((int)timeSpan.TotalHours == 1 ? "" : "s")} ago";
+        if (timeSpan.TotalMinutes >= 1)
+            return $"{(int)timeSpan.TotalMinutes} minute{((int)timeSpan.TotalMinutes == 1 ? "" : "s")} ago";
+        
+        return "Just now";
+    }
+
+    private int GetSuccessfulCount() => filteredDeployments.Count(d => d.StatusCategory == "success");
+    private int GetFailedCount() => filteredDeployments.Count(d => d.StatusCategory == "failure");
+    private int GetActiveCount() => filteredDeployments.Count(d => d.StatusCategory == "pending" || d.StatusCategory == "in_progress");
+
+    private string GetSuccessRate()
+    {
+        if (filteredDeployments.Count == 0) return "0";
+        return Math.Round((GetSuccessfulCount() * 100.0) / filteredDeployments.Count, 1).ToString("0.#");
+    }
+
+    private string GetFailureRate()
+    {
+        if (filteredDeployments.Count == 0) return "0";
+        return Math.Round((GetFailedCount() * 100.0) / filteredDeployments.Count, 1).ToString("0.#");
+    }
+
+    private string GetStateClass(string statusCategory)
+    {
+        return statusCategory?.ToLower() switch
+        {
+            "success" => "bg-success",
+            "failure" => "bg-danger",
+            "pending" => "bg-warning",
+            "in_progress" => "bg-info",
+            "cancelled" => "bg-secondary",
+            _ => "bg-secondary"
+        };
+    }
+
+    private string GetStateIcon(string statusCategory)
+    {
+        return statusCategory?.ToLower() switch
+        {
+            "success" => "check",
+            "failure" => "x",
+            "pending" => "clock",
+            "in_progress" => "reload",
+            "cancelled" => "ban",
+            _ => "question-mark"
+        };
+    }
 
     public void Dispose()
     {
-        lock (timerLock)
-        {
-            isDisposed = true;
-            refreshTimer?.Stop();
-            refreshTimer?.Dispose();
-            refreshTimer = null;
-        }
-        
-        Logger.LogDebug("Dashboard component disposed");
+        refreshTimer?.Stop();
+        refreshTimer?.Dispose();
     }
-
-    #endregion
-
-    #region Data Classes
-
-    private class DashboardState
-    {
-        public List<DeploymentState> AllDeployments { get; set; } = new();
-        public Dictionary<string, Dictionary<string, int>> RepositoryStats { get; set; } = new();
-    }
-
-    private class DashboardStats
-    {
-        public int TotalCount { get; set; }
-        public int FilteredCount { get; set; }
-        public int SuccessfulCount { get; set; }
-        public int FailedCount { get; set; }
-        public int ActiveCount { get; set; }
-        public double SuccessRate { get; set; }
-        public double FailureRate { get; set; }
-    }
-
-    #endregion
 }
