@@ -4,6 +4,7 @@
 @using MyM365Agent2.Components
 @inject IAzureTableStorageService StorageService
 @inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
 
 <div class="container-fluid">
     <!-- Header -->
@@ -38,6 +39,36 @@
         </div>
     </div>
 
+    <!-- Pending Approvals Alert -->
+    @if (!isLoading && pendingApprovals.Any())
+    {
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="alert alert-warning">
+                    <div class="d-flex align-items-center">
+                        <i class="oi oi-shield me-3" style="font-size: 1.5rem;"></i>
+                        <div class="flex-grow-1">
+                            <h6 class="alert-heading mb-1">
+                                <i class="oi oi-clock me-1"></i>
+                                @pendingApprovals.Count Deployment@(pendingApprovals.Count == 1 ? "" : "s") Pending Approval
+                            </h6>
+                            <p class="mb-0">
+                                <button class="btn btn-sm btn-warning me-2" @onclick='() => SetStatusFilter("pending")'>
+                                    <i class="oi oi-shield me-1"></i>
+                                    Show Pending Approvals
+                                </button>
+                                <button class="btn btn-sm btn-outline-warning" @onclick='() => Navigation.NavigateTo("/approvals")'>
+                                    <i class="oi oi-list me-1"></i>
+                                    Approval Dashboard
+                                </button>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
     <!-- Repository and Environment Selector -->
     <RepoEnvironmentSelector 
         SelectedRepository="@selectedRepository"
@@ -70,6 +101,10 @@
                                 <button class="btn @(currentStatusFilter == "pending" ? "btn-warning" : "btn-outline-warning")"
                                         @onclick="@(() => SetStatusFilter("pending"))">
                                     Active (@GetStatusCount("pending"))
+                                </button>
+                                <button class="btn @(currentStatusFilter == "approval" ? "btn-info" : "btn-outline-info")"
+                                        @onclick="@(() => SetStatusFilter("approval"))">
+                                    Approvals (@pendingApprovals.Count)
                                 </button>
                             </div>
                         </div>
@@ -171,6 +206,13 @@
                                 {
                                     <span class="badge bg-info ms-2">@filteredDeployments.Count filtered</span>
                                 }
+                                @if (currentStatusFilter == "approval")
+                                {
+                                    <span class="badge bg-warning ms-2">
+                                        <i class="oi oi-shield me-1"></i>
+                                        Approval Required
+                                    </span>
+                                }
                             </h5>
                             <div class="d-flex align-items-center gap-2">
                                 <select class="form-select form-select-sm" @onchange="OnPageSizeChanged" style="width: auto;">
@@ -224,15 +266,19 @@
                                 <tbody>
                                     @foreach (var deployment in paginatedDeployments)
                                     {
-                                        <tr class="deployment-row">
+                                        <tr class="deployment-row @(IsProtectionRuleEntry(deployment) ? "table-warning" : "")">
                                             <td>
                                                 <div class="d-flex align-items-center">
-                                                    <i class="oi oi-code me-2 text-primary"></i>
+                                                    <i class="oi oi-@(IsProtectionRuleEntry(deployment) ? "shield" : "code") me-2 @(IsProtectionRuleEntry(deployment) ? "text-warning" : "text-primary")"></i>
                                                     <div>
                                                         <div class="fw-bold">@deployment.Repository</div>
                                                         @if (!string.IsNullOrEmpty(deployment.WorkflowRunIdDisplay) && deployment.WorkflowRunIdDisplay != "N/A")
                                                         {
                                                             <small class="text-muted">#@deployment.WorkflowRunIdDisplay</small>
+                                                        }
+                                                        @if (IsProtectionRuleEntry(deployment))
+                                                        {
+                                                            <small class="badge bg-warning text-dark">Protection Rule</small>
                                                         }
                                                     </div>
                                                 </div>
@@ -260,6 +306,14 @@
                                                     <i class="oi oi-@GetStateIcon(deployment.StatusCategory) me-1"></i>
                                                     @deployment.DisplayStatus
                                                 </span>
+                                                @if (IsPendingApproval(deployment))
+                                                {
+                                                    <br />
+                                                    <small class="text-warning">
+                                                        <i class="oi oi-shield me-1"></i>
+                                                        Approval Required
+                                                    </small>
+                                                }
                                             </td>
                                             <td>
                                                 <div>
@@ -311,6 +365,21 @@
                                             </td>
                                             <td>
                                                 <div class="d-flex gap-1">
+                                                    @if (IsPendingApproval(deployment))
+                                                    {
+                                                        <div class="btn-group" role="group">
+                                                            <button class="btn btn-sm btn-success" 
+                                                                    @onclick="() => QuickApprove(deployment.Repository, deployment.RowKey)"
+                                                                    title="Quick Approve">
+                                                                <i class="oi oi-check"></i>
+                                                            </button>
+                                                            <button class="btn btn-sm btn-danger" 
+                                                                    @onclick="() => QuickReject(deployment.Repository, deployment.RowKey)"
+                                                                    title="Quick Reject">
+                                                                <i class="oi oi-x"></i>
+                                                            </button>
+                                                        </div>
+                                                    }
                                                     @if (!string.IsNullOrEmpty(deployment.WorkflowRunUrl))
                                                     {
                                                         <a href="@deployment.WorkflowRunUrl" target="_blank" 
@@ -396,12 +465,17 @@
     th[onclick]:hover {
         background-color: #f1f3f4;
     }
+
+    .table-warning {
+        --bs-table-bg: rgba(255, 193, 7, 0.1);
+    }
 </style>
 
 @code {
     private List<DeploymentState> allDeployments = new();
     private List<DeploymentState> filteredDeployments = new();
     private List<DeploymentState> paginatedDeployments = new();
+    private List<DeploymentState> pendingApprovals = new();
     
     private string selectedRepository = "";
     private string selectedEnvironment = "";
@@ -458,6 +532,7 @@
         try
         {
             allDeployments = await StorageService.GetDeploymentsAsync();
+            pendingApprovals = await StorageService.GetPendingApprovalsByEnvironmentAsync();
             ApplyFilters();
         }
         catch (Exception ex)
@@ -500,6 +575,13 @@
             {
                 filteredDeployments = filteredDeployments.Where(d => 
                     d.StatusCategory == "pending" || d.StatusCategory == "in_progress").ToList();
+            }
+            else if (currentStatusFilter == "approval")
+            {
+                // Show only protection rule entries that are pending
+                filteredDeployments = pendingApprovals.Where(d => 
+                    (string.IsNullOrEmpty(selectedRepository) || d.Repository == selectedRepository) &&
+                    (string.IsNullOrEmpty(selectedEnvironment) || d.Environment == selectedEnvironment)).ToList();
             }
             else
             {
@@ -629,6 +711,62 @@
     private async Task RefreshData()
     {
         await LoadDeployments();
+    }
+
+    private bool IsProtectionRuleEntry(DeploymentState deployment)
+    {
+        return deployment?.RowKey?.Contains("_protection_rule") == true;
+    }
+
+    private bool IsPendingApproval(DeploymentState deployment)
+    {
+        if (deployment == null) return false;
+        
+        var status = deployment.StatusCategory.ToLower();
+        return (status == "pending" || status == "waiting" || deployment.State.ToLower().Contains("pending")) 
+               && IsProtectionRuleEntry(deployment);
+    }
+
+    private async Task QuickApprove(string repository, string deploymentId)
+    {
+        try
+        {
+            var success = await StorageService.ApproveDeploymentAsync(repository, deploymentId, "Quick Approval User", "Quick approval from deployment list");
+            if (success)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Deployment approved successfully!");
+                await LoadDeployments(); // Refresh to update the list
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Failed to approve deployment. Please try again.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error approving deployment: {ex.Message}");
+        }
+    }
+
+    private async Task QuickReject(string repository, string deploymentId)
+    {
+        try
+        {
+            var success = await StorageService.RejectDeploymentAsync(repository, deploymentId, "Quick Rejection User", "Quick rejection from deployment list");
+            if (success)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Deployment rejected successfully!");
+                await LoadDeployments(); // Refresh to update the list
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Failed to reject deployment. Please try again.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error rejecting deployment: {ex.Message}");
+        }
     }
 
     private int GetTotalCount() => filteredDeployments.Count;

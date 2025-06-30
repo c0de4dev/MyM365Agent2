@@ -4,6 +4,7 @@
 @using System.Text.Json
 @inject IAzureTableStorageService StorageService
 @inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
 
 <div class="container-fluid">
     <div class="row">
@@ -69,6 +70,13 @@
                                     <i class="oi oi-@GetStateIcon(deployment.StatusCategory) me-1"></i>
                                     @deployment.DisplayStatus
                                 </span>
+                                @if (IsProtectionRuleEntry())
+                                {
+                                    <span class="badge bg-info ms-2">
+                                        <i class="oi oi-shield me-1"></i>
+                                        Protection Rule
+                                    </span>
+                                }
                             </div>
                         </div>
                     </div>
@@ -132,6 +140,59 @@
             </div>
         </div>
 
+        <!-- Approval Section for Pending Deployments -->
+        @if (IsPendingApproval())
+        {
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card border-warning">
+                        <div class="card-header bg-warning text-dark">
+                            <h5 class="mb-0">
+                                <i class="oi oi-shield me-2"></i>
+                                Deployment Approval Required
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-8">
+                                    <p class="mb-3">
+                                        <strong>Environment:</strong> @deployment.Environment<br />
+                                        <strong>Workflow:</strong> @deployment.WorkflowDisplayName<br />
+                                        <strong>Requested by:</strong> @deployment.CreatorLogin<br />
+                                        <strong>Status:</strong> <span class="badge bg-warning">Pending Approval</span>
+                                    </p>
+                                    
+                                    @if (!string.IsNullOrEmpty(approvalComment))
+                                    {
+                                        <div class="alert alert-info">
+                                            <strong>Approval Comment:</strong><br />
+                                            @approvalComment
+                                        </div>
+                                    }
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="d-grid gap-2">
+                                        <button class="btn btn-success btn-lg" @onclick="() => ShowApprovalModal(true)" disabled="@isProcessingApproval">
+                                            <i class="oi oi-check me-2"></i>
+                                            @if (isProcessingApproval)
+                                            {
+                                                <span class="spinner-border spinner-border-sm me-2"></span>
+                                            }
+                                            Approve Deployment
+                                        </button>
+                                        <button class="btn btn-danger btn-lg" @onclick="() => ShowApprovalModal(false)" disabled="@isProcessingApproval">
+                                            <i class="oi oi-x me-2"></i>
+                                            Reject Deployment
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
         <!-- Main Content -->
         <div class="row">
             <!-- Left Column - Details -->
@@ -170,6 +231,13 @@
                                         <dt class="col-sm-5">Deployment ID:</dt>
                                         <dd class="col-sm-7">@deployment.DeploymentIdDisplay</dd>
                                     }
+
+                                    <dt class="col-sm-5">Entry Type:</dt>
+                                    <dd class="col-sm-7">
+                                        <span class="badge @(IsProtectionRuleEntry() ? "bg-info" : "bg-primary")">
+                                            @(IsProtectionRuleEntry() ? "Protection Rule" : "Deployment")
+                                        </span>
+                                    </dd>
                                 </dl>
                             </div>
                             <div class="col-md-6">
@@ -218,6 +286,39 @@
                         }
                     </div>
                 </div>
+
+                <!-- Related Deployment Entry -->
+                @if (relatedDeployment != null)
+                {
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                <i class="oi oi-link-intact me-2"></i>
+                                Related @(IsProtectionRuleEntry() ? "Deployment" : "Protection Rule") Entry
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="mb-1">@relatedDeployment.WorkflowDisplayName</h6>
+                                    <p class="mb-2 text-muted">
+                                        Status: <span class="badge @GetStateClass(relatedDeployment.StatusCategory)">@relatedDeployment.DisplayStatus</span>
+                                    </p>
+                                    <small class="text-muted">
+                                        Updated: @relatedDeployment.UpdatedAt.ToString("yyyy-MM-dd HH:mm:ss")
+                                    </small>
+                                </div>
+                                <div>
+                                    <button class="btn btn-outline-primary" 
+                                            @onclick="() => NavigateToRelated()">
+                                        <i class="oi oi-eye me-1"></i>
+                                        View Details
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
 
                 <!-- Job Execution Details -->
                 @if (!string.IsNullOrEmpty(deployment.JobHistory))
@@ -327,7 +428,6 @@
                         </div>
                         <div class="card-body">
                             @{
-                                // <-- Declare it here in a code block
                                 var statusItems = ParseStatusHistory(deployment.StatusHistory);
                             }
                             <div class="table-responsive">
@@ -338,17 +438,28 @@
                                             <th>Status</th>
                                             <th>Creator</th>
                                             <th>Updated At</th>
+                                            <th>Description</th>
                                             <th>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        @foreach (var status in statusItems)
+                                        @foreach (var status in statusItems.OrderByDescending(s => s.UpdatedAtDateTime))
                                         {
                                             <tr>
                                                 <td><span class="badge bg-info">@status.Environment</span></td>
                                                 <td><span class="badge @GetStateClassForStatus(status.State)">@status.State</span></td>
                                                 <td>@status.Creator</td>
                                                 <td>@status.UpdatedAtDateTime?.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                                <td>
+                                                    @if (!string.IsNullOrEmpty(status.Description))
+                                                    {
+                                                        <small class="text-muted">@status.Description</small>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="text-muted">-</span>
+                                                    }
+                                                </td>
                                                 <td>
                                                     @if (!string.IsNullOrEmpty(status.LogUrl))
                                                     {
@@ -378,7 +489,6 @@
                         </div>
                         <div class="card-body">
                             @{
-                                // Declare the list in a Razor code block
                                 var historyItems = ParseDeploymentHistory(deployment.DeploymentHistory);
                             }
                             <div class="table-responsive">
@@ -413,13 +523,22 @@
                         <div class="d-grid gap-2">
                             @if (!string.IsNullOrEmpty(deployment.WorkflowRunUrl))
                             {
-                                <a href="@deployment.WorkflowRunUrl
-                                " target="_blank" class="btn btn-primary"><i class="oi oi-external-link me-2"></i>View Workflow Run</a>
+                                <a href="@deployment.WorkflowRunUrl" target="_blank" class="btn btn-primary">
+                                    <i class="oi oi-external-link me-2"></i>View Workflow Run
+                                </a>
                             }
                             @if (!string.IsNullOrEmpty(deployment.WorkflowUrl))
-                                {
-                                    <a href="@deployment.WorkflowUrl" target="_blank" class="btn btn-outline-primary"><i class="oi oi-code me-2"></i>View Workflow File</a>
-                                }
+                            {
+                                <a href="@deployment.WorkflowUrl" target="_blank" class="btn btn-outline-primary">
+                                    <i class="oi oi-code me-2"></i>View Workflow File
+                                </a>
+                            }
+                            @if (relatedDeployment != null)
+                            {
+                                <button class="btn btn-outline-info" @onclick="NavigateToRelated">
+                                    <i class="oi oi-link-intact me-2"></i>View @(IsProtectionRuleEntry() ? "Deployment" : "Protection Rule")
+                                </button>
+                            }
                         </div>
                     </div>
                 </div>
@@ -461,16 +580,105 @@
     }
 </div>
 
+<!-- Approval Modal -->
+@if (showApprovalModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        @if (isApproving)
+                        {
+                            <i class="oi oi-check me-2 text-success"></i>
+                            <text>Approve Deployment</text>
+                        }
+                        else
+                        {
+                            <i class="oi oi-x me-2 text-danger"></i>
+                            <text>Reject Deployment</text>
+                        }
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="HideApprovalModal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <strong>Repository:</strong> @deployment.Repository<br />
+                        <strong>Environment:</strong> @deployment.Environment<br />
+                        <strong>Workflow:</strong> @deployment.WorkflowDisplayName<br />
+                        <strong>Requested by:</strong> @deployment.CreatorLogin
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="approverName" class="form-label">Your Name/Username:</label>
+                        <input type="text" class="form-control" id="approverName" @bind="approverName" 
+                               placeholder="Enter your name or username" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="approvalCommentInput" class="form-label">Comment (Optional):</label>
+                        <textarea class="form-control" id="approvalCommentInput" rows="3" @bind="approvalCommentInput"
+                                  placeholder="@(isApproving ? "Add approval notes..." : "Provide rejection reason...")"></textarea>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(approvalError))
+                    {
+                        <div class="alert alert-danger">
+                            <i class="oi oi-warning me-2"></i>
+                            @approvalError
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="HideApprovalModal" disabled="@isProcessingApproval">
+                        Cancel
+                    </button>
+                    <button type="button" 
+                            class="btn @(isApproving ? "btn-success" : "btn-danger")" 
+                            @onclick="ProcessApproval" 
+                            disabled="@(isProcessingApproval || string.IsNullOrWhiteSpace(approverName))">
+                        @if (isProcessingApproval)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        @if (isApproving)
+                        {
+                            <i class="oi oi-check me-2"></i>
+                            <text>Approve</text>
+                        }
+                        else
+                        {
+                            <i class="oi oi-x me-2"></i>
+                            <text>Reject</text>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     [Parameter] public string Repository { get; set; }
     [Parameter] public string DeploymentId { get; set; }
 
     private DeploymentState deployment;
+    private DeploymentState relatedDeployment;
     private bool isLoading = true;
+
+    // Approval functionality
+    private bool showApprovalModal = false;
+    private bool isApproving = false;
+    private bool isProcessingApproval = false;
+    private string approverName = "";
+    private string approvalComment = "";
+    private string approvalCommentInput = "";
+    private string approvalError = "";
 
     protected override async Task OnInitializedAsync()
     {
         await LoadDeployment();
+        await LoadRelatedDeployment();
     }
 
     private async Task LoadDeployment()
@@ -479,12 +687,197 @@
         try
         {
             deployment = await StorageService.GetDeploymentAsync(Repository, DeploymentId);
+            
+            // Load approval comment if it exists in status history
+            if (deployment != null && !string.IsNullOrEmpty(deployment.StatusHistory))
+            {
+                var statusItems = ParseStatusHistory(deployment.StatusHistory);
+                var latestApproval = statusItems
+                    .Where(s => !string.IsNullOrEmpty(s.Description))
+                    .OrderByDescending(s => s.UpdatedAtDateTime)
+                    .FirstOrDefault();
+                
+                if (latestApproval != null)
+                {
+                    approvalComment = latestApproval.Description;
+                }
+            }
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error loading deployment: {ex.Message}");
         }
-        finally { isLoading = false; }
+        finally 
+        { 
+            isLoading = false; 
+        }
+    }
+
+    private async Task LoadRelatedDeployment()
+    {
+        if (deployment == null) return;
+
+        try
+        {
+            var workflowRunId = GetWorkflowRunIdFromRowKey(deployment.RowKey);
+            if (!string.IsNullOrEmpty(workflowRunId))
+            {
+                // If this is a protection rule entry, get the deployment entry, and vice versa
+                bool getProtectionRule = !IsProtectionRuleEntry();
+                relatedDeployment = await StorageService.GetRelatedDeploymentAsync(Repository, workflowRunId, getProtectionRule);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading related deployment: {ex.Message}");
+        }
+    }
+
+    private bool IsProtectionRuleEntry()
+    {
+        return deployment?.RowKey?.Contains("_protection_rule") == true;
+    }
+
+    private bool IsPendingApproval()
+    {
+        if (deployment == null) return false;
+        
+        var status = deployment.StatusCategory.ToLower();
+        return status == "pending" || 
+               status == "waiting" || 
+               deployment.State.ToLower().Contains("pending") ||
+               deployment.State.ToLower().Contains("waiting");
+    }
+
+    private string GetWorkflowRunIdFromRowKey(string rowKey)
+    {
+        if (string.IsNullOrEmpty(rowKey)) return null;
+        
+        if (rowKey.Contains("_deployment"))
+            return rowKey.Replace("_deployment", "");
+        
+        if (rowKey.Contains("_protection_rule"))
+            return rowKey.Replace("_protection_rule", "");
+        
+        return rowKey;
+    }
+
+    private void ShowApprovalModal(bool approve)
+    {
+        isApproving = approve;
+        showApprovalModal = true;
+        approvalError = "";
+        approvalCommentInput = "";
+    }
+
+    private void HideApprovalModal()
+    {
+        showApprovalModal = false;
+        approvalError = "";
+        approvalCommentInput = "";
+        approverName = "";
+    }
+
+    private async Task ProcessApproval()
+    {
+        if (string.IsNullOrWhiteSpace(approverName))
+        {
+            approvalError = "Please enter your name or username.";
+            return;
+        }
+
+        isProcessingApproval = true;
+        approvalError = "";
+
+        try
+        {
+            var newStatus = isApproving ? "approved" : "rejected";
+            var comment = string.IsNullOrWhiteSpace(approvalCommentInput) 
+                ? (isApproving ? "Deployment approved" : "Deployment rejected")
+                : approvalCommentInput;
+
+            // Create new status history entry
+            var statusUpdate = new StatusHistoryItem
+            {
+                Creator = approverName,
+                State = newStatus,
+                Description = comment,
+                Environment = deployment.Environment,
+                LogUrl = deployment.WorkflowRunUrl,
+                UpdatedAt = JsonSerializer.SerializeToElement(DateTimeOffset.UtcNow.ToString("O")).ToString()
+            };
+
+            // Update the deployment status
+            await UpdateDeploymentStatus(newStatus, statusUpdate);
+
+            // Show success message
+            await JSRuntime.InvokeVoidAsync("alert", 
+                $"Deployment {(isApproving ? "approved" : "rejected")} successfully!");
+
+            // Reload the deployment to show updated status
+            await LoadDeployment();
+            
+            HideApprovalModal();
+        }
+        catch (Exception ex)
+        {
+            approvalError = $"Error processing approval: {ex.Message}";
+            Console.WriteLine($"Approval error: {ex.Message}");
+        }
+        finally
+        {
+            isProcessingApproval = false;
+        }
+    }
+
+    private async Task UpdateDeploymentStatus(string newStatus, StatusHistoryItem statusUpdate)
+    {
+        try
+        {
+            // Use the actual service method to update the deployment status
+            var success = await StorageService.UpdateDeploymentStatusAsync(
+                Repository, 
+                DeploymentId, 
+                newStatus, 
+                statusUpdate.Creator, 
+                statusUpdate.Description);
+
+            if (!success)
+            {
+                throw new Exception("Failed to update deployment status in storage");
+            }
+
+            // Update local deployment object for UI
+            var statusItems = new List<StatusHistoryItem>();
+            if (!string.IsNullOrEmpty(deployment.StatusHistory))
+            {
+                try
+                {
+                    var existing = JsonSerializer.Deserialize<StatusHistoryItem[]>(deployment.StatusHistory);
+                    if (existing != null)
+                        statusItems.AddRange(existing);
+                }
+                catch { }
+            }
+
+            statusItems.Add(statusUpdate);
+            deployment.CurrentStatus = newStatus;
+            deployment.StatusHistory = JsonSerializer.Serialize(statusItems);
+            deployment.LastStatusUpdate = JsonSerializer.SerializeToElement(DateTimeOffset.UtcNow.ToString("O")).ToString();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error updating deployment status: {ex.Message}");
+            throw;
+        }
+    }
+
+    private void NavigateToRelated()
+    {
+        if (relatedDeployment != null)
+        {
+            Navigation.NavigateTo($"/deployments/{Repository}/{relatedDeployment.RowKey}");
+        }
     }
 
     private string GetStateClass(string statusCategory) => statusCategory?.ToLower() switch
@@ -509,8 +902,8 @@
 
     private string GetStateClassForStatus(string status) => status?.ToLower() switch
     {
-        "success" or "completed" => "bg-success",
-        "failure" or "failed" => "bg-danger",
+        "success" or "completed" or "approved" => "bg-success",
+        "failure" or "failed" or "rejected" => "bg-danger",
         "pending" or "waiting" or "queued" => "bg-warning",
         "in_progress" or "running" => "bg-info",
         "cancelled" or "canceled" => "bg-secondary",
@@ -547,8 +940,6 @@
         }
         catch (JsonException)
         {
-            // Optionally log the exception:
-            // Console.Error.WriteLine(ex);
             return new List<JobInfo>();
         }
     }
@@ -565,7 +956,6 @@
         }
         catch (JsonException)
         {
-            // Optionally log the exception
             return new List<StatusHistoryItem>();
         }
     }

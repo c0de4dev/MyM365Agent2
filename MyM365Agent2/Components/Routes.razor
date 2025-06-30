@@ -2,6 +2,38 @@
     <Router AppAssembly="@typeof(Program).Assembly">
         <Found Context="routeData">
             <RouteView RouteData="@routeData" DefaultLayout="@typeof(Layout.MainLayout)" />
+            <FocusOnNavigate RouteData="@routeData" Selector="h1" />
         </Found>
+        <NotFound>
+            <PageTitle>Page Not Found</PageTitle>
+            <LayoutView Layout="@typeof(Layout.MainLayout)">
+                <div class="container-fluid">
+                    <div class="row justify-content-center">
+                        <div class="col-md-6 text-center">
+                            <div class="py-5">
+                                <i class="oi oi-question-mark mb-3 text-muted" style="font-size: 4rem;" aria-hidden="true"></i>
+                                <h1 class="display-4">Page Not Found</h1>
+                                <p class="lead text-muted">The page you're looking for doesn't exist or may have been moved.</p>
+                                <div class="mt-4">
+                                    <a href="/" class="btn btn-primary me-2">
+                                        <i class="oi oi-home me-2" aria-hidden="true"></i>
+                                        Back to Dashboard
+                                    </a>
+                                    <a href="/deployments" class="btn btn-outline-primary">
+                                        <i class="oi oi-list me-2" aria-hidden="true"></i>
+                                        View Deployments
+                                    </a>
+                                </div>
+                                <div class="mt-4">
+                                    <small class="text-muted">
+                                        If you believe this is an error, please contact support.
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </LayoutView>
+        </NotFound>
     </Router>
 </FluentDesignSystemProvider>

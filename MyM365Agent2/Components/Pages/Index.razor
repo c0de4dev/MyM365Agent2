@@ -12,30 +12,18 @@
     <!-- Header Section -->
     <div class="row mb-4">
         <div class="col-12">
-            <div class="jumbotron bg-light p-4 rounded-lg">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <h1 class="display-5 mb-2">GitHub Actions Dashboard</h1>
-                        <p class="lead mb-0">Monitor and track GitHub Action deployments across repositories and environments</p>
-                    </div>
-                    <div class="text-end">
-                        <button class="btn btn-primary" @onclick="RefreshData">
-                            <i class="oi oi-reload me-2"></i>
-                            Refresh
-                        </button>
-                    </div>
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h1 class="mb-1">GitHub Actions</h1>
+                    <p class="text-muted mb-0">Monitor workflow runs across your repositories</p>
                 </div>
+                <button class="btn btn-primary" @onclick="RefreshData">
+                    <i class="oi oi-reload me-2"></i>
+                    Refresh
+                </button>
             </div>
         </div>
     </div>
-
-    <!-- Repository and Environment Selector -->
-    <RepoEnvironmentSelector 
-        SelectedRepository="@selectedRepository"
-        SelectedEnvironment="@selectedEnvironment"
-        SelectedRepositoryChanged="@((string repo) => { selectedRepository = repo; })"
-        SelectedEnvironmentChanged="@((string env) => { selectedEnvironment = env; })"
-        OnSelectionChanged="@OnFiltersChanged" />
 
     <!-- Loading State -->
     @if (isLoading)
@@ -43,188 +31,103 @@
         <div class="row">
             <div class="col-12 text-center py-5">
                 <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading deployment data...</span>
+                    <span class="visually-hidden">Loading workflows...</span>
                 </div>
-                <p class="mt-3 text-muted">Loading GitHub Actions deployments...</p>
+                <p class="mt-3 text-muted">Loading GitHub Actions...</p>
             </div>
         </div>
     }
     else
     {
-        <!-- Quick Statistics -->
+        <!-- Filters -->
         <div class="row mb-4">
-            <div class="col-12">
-                <h4 class="mb-3">
-                    <i class="oi oi-graph me-2"></i>
-                    Deployment Overview
-                    @if (!string.IsNullOrEmpty(selectedRepository) || !string.IsNullOrEmpty(selectedEnvironment))
-                    {
-                        <small class="text-muted">
-                            (@filteredDeployments.Count of @allDeployments.Count deployments)
-                        </small>
-                    }
-                </h4>
-            </div>
-        </div>
-
-        <div class="row mb-4">
-            <!-- Total Deployments -->
-            <div class="col-lg-3 col-md-6 mb-3">
-                <div class="card text-white bg-primary h-100">
+            <div class="col-md-8">
+                <div class="card">
                     <div class="card-body">
-                        <div class="d-flex justify-content-between">
-                            <div>
-                                <h6 class="card-title">Total Actions</h6>
-                                <h2 class="mb-0">@filteredDeployments.Count</h2>
-                                <small>GitHub Action runs</small>
+                        <div class="row align-items-center">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Repository</label>
+                                <select class="form-select" @onchange="OnRepositoryChanged" value="@selectedRepository">
+                                    <option value="">All Repositories</option>
+                                    @foreach (var repo in availableRepositories)
+                                    {
+                                        <option value="@repo">@repo</option>
+                                    }
+                                </select>
                             </div>
-                            <div class="align-self-center">
-                                <i class="oi oi-layers" style="font-size: 2rem; opacity: 0.7;"></i>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Environment</label>
+                                <select class="form-select" @onchange="OnEnvironmentChanged" value="@selectedEnvironment">
+                                    <option value="">All Environments</option>
+                                    @foreach (var env in availableEnvironments)
+                                    {
+                                        <option value="@env">@env</option>
+                                    }
+                                </select>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-
-            <!-- Successful Deployments -->
-            <div class="col-lg-3 col-md-6 mb-3">
-                <div class="card text-white bg-success h-100">
+            <div class="col-md-4">
+                <div class="card">
                     <div class="card-body">
-                        <div class="d-flex justify-content-between">
-                            <div>
-                                <h6 class="card-title">Successful</h6>
-                                <h2 class="mb-0">@GetSuccessfulCount()</h2>
-                                <small>@GetSuccessRate()% success rate</small>
-                            </div>
-                            <div class="align-self-center">
-                                <i class="oi oi-check" style="font-size: 2rem; opacity: 0.7;"></i>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Failed Deployments -->
-            <div class="col-lg-3 col-md-6 mb-3">
-                <div class="card text-white bg-danger h-100">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between">
-                            <div>
-                                <h6 class="card-title">Failed</h6>
-                                <h2 class="mb-0">@GetFailedCount()</h2>
-                                <small>@GetFailureRate()% failure rate</small>
-                            </div>
-                            <div class="align-self-center">
-                                <i class="oi oi-x" style="font-size: 2rem; opacity: 0.7;"></i>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Active Deployments -->
-            <div class="col-lg-3 col-md-6 mb-3">
-                <div class="card text-white bg-warning h-100">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between">
-                            <div>
-                                <h6 class="card-title">Active</h6>
-                                <h2 class="mb-0">@GetActiveCount()</h2>
-                                <small>Running or pending</small>
-                            </div>
-                            <div class="align-self-center">
-                                <i class="oi oi-clock" style="font-size: 2rem; opacity: 0.7;"></i>
-                            </div>
+                        <label class="form-label fw-bold">Status Filter</label>
+                        <div class="btn-group w-100" role="group">
+                            <button class="btn @(statusFilter == "" ? "btn-primary" : "btn-outline-primary") btn-sm"
+                                    @onclick="@(() => SetStatusFilter(""))">
+                                All
+                            </button>
+                            <button class="btn @(statusFilter == "in_progress" ? "btn-info" : "btn-outline-info") btn-sm"
+                                    @onclick="@(() => SetStatusFilter("in_progress"))">
+                                Running
+                            </button>
+                            <button class="btn @(statusFilter == "pending" ? "btn-warning" : "btn-outline-warning") btn-sm"
+                                    @onclick="@(() => SetStatusFilter("pending"))">
+                                Pending
+                            </button>
+                            <button class="btn @(statusFilter == "failure" ? "btn-danger" : "btn-outline-danger") btn-sm"
+                                    @onclick="@(() => SetStatusFilter("failure"))">
+                                Failed
+                            </button>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Repository Breakdown (when no specific repo selected) -->
-        @if (string.IsNullOrEmpty(selectedRepository) && repositoryStats.Any())
+        <!-- Active Filters Display -->
+        @if (!string.IsNullOrEmpty(selectedRepository) || !string.IsNullOrEmpty(selectedEnvironment) || !string.IsNullOrEmpty(statusFilter))
         {
-            <div class="row mb-4">
+            <div class="row mb-3">
                 <div class="col-12">
-                    <div class="card">
-                        <div class="card-header">
-                            <h5 class="mb-0">
-                                <i class="oi oi-code me-2"></i>
-                                Repository Deployment Summary
-                            </h5>
+                    <div class="alert alert-info d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>Active Filters:</strong>
+                            @if (!string.IsNullOrEmpty(selectedRepository))
+                            {
+                                <span class="badge bg-primary me-2">Repo: @selectedRepository</span>
+                            }
+                            @if (!string.IsNullOrEmpty(selectedEnvironment))
+                            {
+                                <span class="badge bg-info me-2">Env: @selectedEnvironment</span>
+                            }
+                            @if (!string.IsNullOrEmpty(statusFilter))
+                            {
+                                <span class="badge bg-secondary me-2">Status: @GetStatusDisplayName(statusFilter)</span>
+                            }
+                            <small class="text-muted">(@displayedDeployments.Count results)</small>
                         </div>
-                        <div class="card-body">
-                            <div class="table-responsive">
-                                <table class="table table-hover">
-                                    <thead>
-                                        <tr>
-                                            <th>Repository</th>
-                                            <th>Total Runs</th>
-                                            <th>Success Rate</th>
-                                            <th>Recent Activity</th>
-                                            <th>Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach (var repoStat in repositoryStats.Take(10))
-                                        {
-                                            <tr>
-                                                <td>
-                                                    <i class="oi oi-code me-2"></i>
-                                                    <strong>@repoStat.Key</strong>
-                                                </td>
-                                                <td>
-                                                    <span class="badge bg-primary">@repoStat.Value["total"]</span>
-                                                </td>
-                                                <td>
-                                                    @{
-                                                        var successRate = repoStat.Value["total"] > 0 
-                                                            ? (repoStat.Value["success"] * 100.0 / repoStat.Value["total"]) 
-                                                            : 0;
-                                                    }
-                                                    <div class="d-flex align-items-center">
-                                                        <div class="progress flex-grow-1 me-2" style="height: 8px;">
-                                                            <div class="progress-bar @(successRate >= 80 ? "bg-success" : successRate >= 60 ? "bg-warning" : "bg-danger")" 
-                                                                 style="width: @(successRate)%"></div>
-                                                        </div>
-                                                        <small class="text-muted">@(successRate)%</small>
-                                                    </div>
-                                                </td>
-                                                <td>
-                                                    @{
-                                                        var lastDeployment = allDeployments
-                                                            .Where(d => d.Repository == repoStat.Key)
-                                                            .OrderByDescending(d => d.CreatedAt)
-                                                            .FirstOrDefault();
-                                                    }
-                                                    @if (lastDeployment != null)
-                                                    {
-                                                        <span class="badge @GetStateClass(lastDeployment.StatusCategory)">
-                                                            @lastDeployment.DisplayStatus
-                                                        </span>
-                                                        <br />
-                                                        <small class="text-muted">@lastDeployment.CreatedAt.ToString("MMM dd, HH:mm")</small>
-                                                    }
-                                                </td>
-                                                <td>
-                                                    <button class="btn btn-sm btn-outline-primary" 
-                                                            @onclick="() => SelectRepository(repoStat.Key)">
-                                                        <i class="oi oi-eye me-1"></i>
-                                                        View Details
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        }
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="ClearAllFilters">
+                            <i class="oi oi-x me-1"></i>
+                            Clear All
+                        </button>
                     </div>
                 </div>
             </div>
         }
 
-        <!-- Recent Deployments -->
+        <!-- GitHub Actions List -->
         <div class="row">
             <div class="col-12">
                 <div class="card">
@@ -232,142 +135,116 @@
                         <div class="d-flex justify-content-between align-items-center">
                             <h5 class="mb-0">
                                 <i class="oi oi-list-rich me-2"></i>
-                                Recent GitHub Actions
-                                @if (!string.IsNullOrEmpty(selectedRepository))
-                                {
-                                    <span class="badge bg-primary ms-2">@selectedRepository</span>
-                                }
-                                @if (!string.IsNullOrEmpty(selectedEnvironment))
-                                {
-                                    <span class="badge bg-info ms-2">@selectedEnvironment</span>
-                                }
+                                Recent Workflows
                             </h5>
-                            <div>
-                                <button 
-                                    class="btn btn-sm btn-outline-primary me-2" 
-                                    @onclick='() => Navigation.NavigateTo("/deployments")'>
-                                    <i class="oi oi-list me-1"></i>
-                                    View All
-                                </button>
-                                 <div class="btn-group btn-group-sm" role="group">
-                                    <button 
-                                        class='btn @(statusFilter == "" ? "btn-primary" : "btn-outline-primary")'
-                                        @onclick='() => SetStatusFilter("")'>
-                                        All
-                                    </button>
-                                    <button 
-                                        class='btn @(statusFilter == "success" ? "btn-success" : "btn-outline-success")'
-                                        @onclick='() => SetStatusFilter("success")'>
-                                        Success
-                                    </button>
-                                    <button 
-                                        class='btn @(statusFilter == "failure" ? "btn-danger" : "btn-outline-danger")'
-                                        @onclick='() => SetStatusFilter("failure")'>
-                                        Failed
-                                    </button>
-                                    <button 
-                                        class='btn @(statusFilter == "pending" ? "btn-warning" : "btn-outline-warning")'
-                                        @onclick='() => SetStatusFilter("pending")'>
-                                        Active
-                                    </button>
-                                </div>
-                            </div>
+                            <small class="text-muted">
+                                Showing @Math.Min(50, displayedDeployments.Count) of @displayedDeployments.Count workflows
+                            </small>
                         </div>
                     </div>
                     <div class="card-body p-0">
                         @if (displayedDeployments.Any())
                         {
                             <div class="list-group list-group-flush">
-                                @foreach (var deployment in displayedDeployments.Take(15))
+                                @foreach (var deployment in displayedDeployments.Take(50))
                                 {
-                                    <div class="list-group-item list-group-item-action">
+                                    <div class="list-group-item list-group-item-action border-0">
                                         <div class="d-flex w-100 justify-content-between align-items-start">
                                             <div class="flex-grow-1">
+                                                <!-- Workflow Header -->
                                                 <div class="d-flex justify-content-between align-items-center mb-2">
-                                                    <h6 class="mb-0 fw-bold">
+                                                    <div class="d-flex align-items-center">
                                                         <i class="oi oi-code me-2 text-primary"></i>
-                                                        @deployment.Repository
-                                                        @if (!string.IsNullOrEmpty(deployment.WorkflowDisplayName))
-                                                        {
-                                                            <span class="text-muted"> / @deployment.WorkflowDisplayName</span>
-                                                        }
-                                                    </h6>
+                                                        <h6 class="mb-0 fw-bold">@deployment.Repository</h6>
+                                                        <span class="text-muted mx-2">/</span>
+                                                        <span class="text-muted">@deployment.WorkflowDisplayName</span>
+                                                    </div>
                                                     <small class="text-muted">@deployment.CreatedAt.ToString("MMM dd, HH:mm")</small>
                                                 </div>
                                                 
+                                                <!-- Status and Info Badges -->
                                                 <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-                                                    <span class="badge bg-info">
-                                                        <i class="oi oi-globe me-1"></i>
-                                                        @deployment.Environment
-                                                    </span>
-                                                    <span class="badge @GetStateClass(deployment.StatusCategory)">
+                                                    <span class="badge @GetStateClass(deployment.StatusCategory) px-2 py-1">
                                                         <i class="oi oi-@GetStateIcon(deployment.StatusCategory) me-1"></i>
                                                         @deployment.DisplayStatus
                                                     </span>
+                                                    
+                                                    @if (!string.IsNullOrEmpty(deployment.Environment))
+                                                    {
+                                                        <span class="badge bg-info px-2 py-1">
+                                                            <i class="oi oi-globe me-1"></i>
+                                                            @deployment.Environment
+                                                        </span>
+                                                    }
+                                                    
                                                     @if (!string.IsNullOrEmpty(deployment.Branch))
                                                     {
-                                                        <span class="badge bg-secondary">
+                                                        <span class="badge bg-secondary px-2 py-1">
                                                             <i class="oi oi-fork me-1"></i>
                                                             @deployment.Branch
                                                         </span>
                                                     }
+                                                    
                                                     @if (!string.IsNullOrEmpty(deployment.RunNumberDisplay) && deployment.RunNumberDisplay != "N/A")
                                                     {
-                                                        <span class="badge bg-light text-dark">
-                                                            <i class="oi oi-tag me-1"></i>
-                                                            Run #@deployment.RunNumberDisplay
+                                                        <span class="badge bg-light text-dark px-2 py-1">
+                                                            #@deployment.RunNumberDisplay
                                                         </span>
                                                     }
                                                 </div>
                                                 
-                                                <div class="d-flex flex-wrap align-items-center gap-3 text-muted">
-                                                    <small>
+                                                <!-- Additional Info -->
+                                                <div class="d-flex flex-wrap align-items-center gap-3 text-muted small">
+                                                    <span>
                                                         <i class="oi oi-person me-1"></i>
                                                         @deployment.CreatorLogin
-                                                    </small>
+                                                    </span>
+                                                    
                                                     @if (!string.IsNullOrEmpty(deployment.FormattedDuration))
                                                     {
-                                                        <small>
+                                                        <span>
                                                             <i class="oi oi-clock me-1"></i>
                                                             @deployment.FormattedDuration
-                                                        </small>
+                                                        </span>
                                                     }
+                                                    
                                                     @if (!string.IsNullOrEmpty(deployment.TriggerType))
                                                     {
-                                                        <small>
+                                                        <span>
                                                             <i class="oi oi-flash me-1"></i>
                                                             @deployment.TriggerType
-                                                        </small>
+                                                        </span>
                                                     }
                                                 </div>
                                             </div>
                                             
+                                            <!-- Action Buttons -->
                                             <div class="ms-3 d-flex flex-column gap-1">
                                                 @if (!string.IsNullOrEmpty(deployment.WorkflowRunUrl))
                                                 {
-                                                    <a href="@deployment.WorkflowRunUrl" target="_blank" class="btn btn-sm btn-outline-primary">
+                                                    <a href="@deployment.WorkflowRunUrl" target="_blank" 
+                                                       class="btn btn-sm btn-outline-primary">
                                                         <i class="oi oi-external-link me-1"></i>
                                                         GitHub
                                                     </a>
                                                 }
-                                            <button 
-                                                class="btn btn-sm btn-primary"
-                                                @onclick="@(() => Navigation.NavigateTo(GetDetailsUrl(deployment)))">
-                                              <i class="oi oi-eye me-1"></i>
-                                              Details
-                                            </button>
+                                                <button class="btn btn-sm btn-primary"
+                                                        @onclick="@(() => Navigation.NavigateTo($"/deployments/{deployment.Repository}/{deployment.RowKey}"))">
+                                                    <i class="oi oi-eye me-1"></i>
+                                                    Details
+                                                </button>
                                             </div>
                                         </div>
                                     </div>
                                 }
                             </div>
                             
-                            @if (displayedDeployments.Count > 15)
+                            @if (displayedDeployments.Count > 50)
                             {
                                 <div class="card-footer text-center">
-                                    <button class="btn btn-outline-primary" @@onclick="() => Navigation.NavigateTo("/deployments")">
-                                        <i class="oi oi-list me-2"></i>
-                                        View All @displayedDeployments.Count Deployments
+                                    <button class="btn btn-outline-primary" @onclick="LoadMoreDeployments">
+                                        <i class="oi oi-plus me-2"></i>
+                                        Load More (@(displayedDeployments.Count - 50) remaining)
                                     </button>
                                 </div>
                             }
@@ -376,17 +253,24 @@
                         {
                             <div class="text-center py-5">
                                 <i class="oi oi-info mb-3 text-muted" style="font-size: 3rem;"></i>
-                                <h5 class="text-muted">No GitHub Actions Found</h5>
+                                <h5 class="text-muted">No Workflows Found</h5>
                                 <p class="text-muted mb-0">
-                                    @if (!string.IsNullOrEmpty(selectedRepository) || !string.IsNullOrEmpty(selectedEnvironment))
+                                    @if (!string.IsNullOrEmpty(selectedRepository) || !string.IsNullOrEmpty(selectedEnvironment) || !string.IsNullOrEmpty(statusFilter))
                                     {
-                                        <text>No deployments match your current filters. Try adjusting your selection.</text>
+                                        <text>No workflows match your current filters. Try adjusting your selection.</text>
                                     }
                                     else
                                     {
-                                        <text>No deployment data available. Connect your GitHub repositories to start monitoring.</text>
+                                        <text>No GitHub Actions found. Connect your repositories to start monitoring workflows.</text>
                                     }
                                 </p>
+                                @if (!string.IsNullOrEmpty(selectedRepository) || !string.IsNullOrEmpty(selectedEnvironment) || !string.IsNullOrEmpty(statusFilter))
+                                {
+                                    <button class="btn btn-primary mt-3" @onclick="ClearAllFilters">
+                                        <i class="oi oi-refresh me-2"></i>
+                                        Clear Filters
+                                    </button>
+                                }
                             </div>
                         }
                     </div>
@@ -400,7 +284,8 @@
     private List<DeploymentState> allDeployments = new();
     private List<DeploymentState> filteredDeployments = new();
     private List<DeploymentState> displayedDeployments = new();
-    private Dictionary<string, Dictionary<string, int>> repositoryStats = new();
+    private List<string> availableRepositories = new();
+    private List<string> availableEnvironments = new();
     
     private string selectedRepository = "";
     private string selectedEnvironment = "";
@@ -413,8 +298,6 @@
         await LoadData();
         SetupAutoRefresh();
     }
-        string GetDetailsUrl(DeploymentState d) 
-        => $"/deployments/{d.Repository}/{d.RowKey}";
 
     private async Task LoadData()
     {
@@ -422,7 +305,22 @@
         try
         {
             allDeployments = await StorageService.GetDeploymentsAsync();
-            repositoryStats = await StorageService.GetRepositoryStatisticsAsync();
+            
+            // Extract available repositories and environments
+            availableRepositories = allDeployments
+                .Select(d => d.Repository)
+                .Where(r => !string.IsNullOrEmpty(r))
+                .Distinct()
+                .OrderBy(r => r)
+                .ToList();
+
+            availableEnvironments = allDeployments
+                .Select(d => d.Environment)
+                .Where(e => !string.IsNullOrEmpty(e))
+                .Distinct()
+                .OrderBy(e => e)
+                .ToList();
+
             ApplyFilters();
         }
         catch (Exception ex)
@@ -446,8 +344,16 @@
         refreshTimer.Start();
     }
 
-    private async Task OnFiltersChanged()
+    private async Task OnRepositoryChanged(ChangeEventArgs e)
     {
+        selectedRepository = e.Value?.ToString() ?? "";
+        ApplyFilters();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnEnvironmentChanged(ChangeEventArgs e)
+    {
+        selectedEnvironment = e.Value?.ToString() ?? "";
         ApplyFilters();
         await InvokeAsync(StateHasChanged);
     }
@@ -456,11 +362,13 @@
     {
         filteredDeployments = allDeployments.ToList();
 
+        // Repository filter
         if (!string.IsNullOrEmpty(selectedRepository))
         {
             filteredDeployments = filteredDeployments.Where(d => d.Repository == selectedRepository).ToList();
         }
 
+        // Environment filter
         if (!string.IsNullOrEmpty(selectedEnvironment))
         {
             filteredDeployments = filteredDeployments.Where(d => d.Environment == selectedEnvironment).ToList();
@@ -473,11 +381,13 @@
     {
         displayedDeployments = filteredDeployments.ToList();
 
+        // Status filter
         if (!string.IsNullOrEmpty(statusFilter))
         {
             displayedDeployments = displayedDeployments.Where(d => d.StatusCategory == statusFilter).ToList();
         }
 
+        // Always sort by creation date (newest first)
         displayedDeployments = displayedDeployments.OrderByDescending(d => d.CreatedAt).ToList();
     }
 
@@ -487,10 +397,12 @@
         ApplyStatusFilter();
     }
 
-    private void SelectRepository(string repository)
+    private void ClearAllFilters()
     {
-        selectedRepository = repository;
-        OnFiltersChanged();
+        selectedRepository = "";
+        selectedEnvironment = "";
+        statusFilter = "";
+        ApplyFilters();
     }
 
     private async Task RefreshData()
@@ -498,20 +410,23 @@
         await LoadData();
     }
 
-    private int GetSuccessfulCount() => filteredDeployments.Count(d => d.StatusCategory == "success");
-    private int GetFailedCount() => filteredDeployments.Count(d => d.StatusCategory == "failure");
-    private int GetActiveCount() => filteredDeployments.Count(d => d.StatusCategory == "pending" || d.StatusCategory == "in_progress");
-
-    private string GetSuccessRate()
+    private void LoadMoreDeployments()
     {
-        if (filteredDeployments.Count == 0) return "0";
-        return Math.Round((GetSuccessfulCount() * 100.0) / filteredDeployments.Count, 1).ToString("0.#");
+        // This could be implemented to show more than 50 results
+        // For now, navigate to the full deployments page
+        Navigation.NavigateTo("/deployments");
     }
 
-    private string GetFailureRate()
+    private string GetStatusDisplayName(string status)
     {
-        if (filteredDeployments.Count == 0) return "0";
-        return Math.Round((GetFailedCount() * 100.0) / filteredDeployments.Count, 1).ToString("0.#");
+        return status switch
+        {
+            "in_progress" => "Running",
+            "pending" => "Pending",
+            "failure" => "Failed",
+            "success" => "Success",
+            _ => status
+        };
     }
 
     private string GetStateClass(string statusCategory)

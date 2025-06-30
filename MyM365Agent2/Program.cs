@@ -7,7 +7,7 @@ using MyM365Agent2.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddScoped<IAzureTableStorageService, AzureTableStorageService>();
-
+builder.Services.AddLogging();
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
