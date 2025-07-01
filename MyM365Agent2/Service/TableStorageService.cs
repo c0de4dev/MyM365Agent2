@@ -90,7 +90,7 @@ namespace MyM365Agent2.Services
             if (string.IsNullOrEmpty(jsonValue)) return jsonValue;
 
             // Handle double-escaped quotes from CSV export
-            return jsonValue.Replace("\"\"", "\"");
+            return jsonValue;
         }
 
         // Convert from DeploymentState for updates

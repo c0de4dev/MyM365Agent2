@@ -951,11 +951,16 @@
 
         try
         {
-            var items = JsonSerializer.Deserialize<StatusHistoryItem[]>(statusHistoryJson);
+            // Add case-insensitive options to match other parts of your code
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            var items = JsonSerializer.Deserialize<StatusHistoryItem[]>(statusHistoryJson, options);
             return items?.ToList() ?? new List<StatusHistoryItem>();
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            // Add logging to see what's failing
+            Console.WriteLine($"Error parsing status history JSON: {ex.Message}");
+            Console.WriteLine($"JSON content: {statusHistoryJson}");
             return new List<StatusHistoryItem>();
         }
     }
