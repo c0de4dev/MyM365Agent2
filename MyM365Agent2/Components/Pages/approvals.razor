@@ -474,10 +474,16 @@
         isLoading = true;
         try
         {
-            pendingApprovals = await StorageService.GetPendingApprovalsByEnvironmentAsync();
-            
+            pendingApprovals = await StorageService.GetPendingApprovalsByEnvironmentAsync(
+                environment: null,
+                daysBack: 30
+            );
+
             // Load recent approvals/rejections for statistics
-            var allDeployments = await StorageService.GetDeploymentsAsync();
+            var allDeployments = await StorageService.GetDeploymentsAsync(
+                repository: null,
+                daysBack: 30 // Last 30 days for approval history
+            );
             allRecentApprovals = allDeployments
                 .Where(d => d.StatusCategory == "success" || d.StatusCategory == "failure")
                 .Where(d => d.RowKey?.Contains("_protection_rule") == true)

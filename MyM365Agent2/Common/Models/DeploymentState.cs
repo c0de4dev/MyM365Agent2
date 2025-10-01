@@ -474,14 +474,31 @@ namespace MyM365Agent2.Common.Models
         public string id { get; set; }
         public string name { get; set; }
         public string status { get; set; }
-        public string html_url { get; set; }
         public string conclusion { get; set; }
+        public string started_at { get; set; }
+        public string completed_at { get; set; }
         public double? duration_seconds { get; set; }
+        public string html_url { get; set; }
+        public string run_id { get; set; }
+        public int? run_attempt { get; set; }
+        public string runner_id { get; set; }
         public string runner_name { get; set; }
+        public List<JobStep> steps { get; set; }
+    }
+
+    public class JobStep
+    {
+        public string name { get; set; }
+        public string status { get; set; }
+        public string conclusion { get; set; }
+        public int? number { get; set; }
+        public string started_at { get; set; }
+        public string completed_at { get; set; }
     }
 
     public class StatusHistoryItem
     {
+        // Common properties
         public string Creator { get; set; }
         public string CreatedAt { get; set; }
         public string Description { get; set; }
@@ -490,8 +507,61 @@ namespace MyM365Agent2.Common.Models
         public string LogUrl { get; set; }
         public string Environment { get; set; }
 
+        // Type of protection rule entry
+        public string Type { get; set; } // "ReviewRequest", "ApproverResponse", "ProtectionRuleRequest", "ProtectionRuleResponse"
+
+        // User/Team Review properties
+        public List<string> ReviewersNames { get; set; }
+        public string ApproverName { get; set; }
+        public string Comment { get; set; }
+
+        // Custom Deployment Protection Rule properties
+        public string CallbackUrl { get; set; }
+
+        // Computed properties
         public DateTime? CreatedAtDateTime => SafeParseDateTime(CreatedAt);
         public DateTime? UpdatedAtDateTime => SafeParseDateTime(UpdatedAt);
+
+        public bool IsReviewRequest => Type == "ReviewRequest";
+        public bool IsApproverResponse => Type == "ApproverResponse";
+        public bool IsProtectionRuleRequest => Type == "ProtectionRuleRequest";
+        public bool IsProtectionRuleResponse => Type == "ProtectionRuleResponse";
+
+        public bool IsPending => State?.ToLower() == "pending";
+        public bool IsApproved => State?.ToLower() == "approved";
+        public bool IsRejected => State?.ToLower() == "rejected";
+
+        public string DisplayType
+        {
+            get
+            {
+                return Type switch
+                {
+                    "ReviewRequest" => "User/Team Approval",
+                    "ApproverResponse" => "Approval Response",
+                    "ProtectionRuleRequest" => "Custom Protection Rule",
+                    "ProtectionRuleResponse" => "Protection Rule Response",
+                    _ => "Status Update"
+                };
+            }
+        }
+
+        public string DisplayDescription
+        {
+            get
+            {
+                if (!string.IsNullOrEmpty(Description))
+                    return Description;
+
+                if (IsApproverResponse)
+                    return !string.IsNullOrEmpty(Comment) ? Comment : $"Deployment {State} by {ApproverName}";
+
+                if (IsProtectionRuleRequest)
+                    return "Awaiting custom deployment protection rule validation";
+
+                return $"Status: {State}";
+            }
+        }
 
         private static DateTime? SafeParseDateTime(string dateString)
         {
