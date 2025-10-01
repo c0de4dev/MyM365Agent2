@@ -16,11 +16,6 @@
                             <i class="oi oi-home"></i> Home
                         </button>
                     </li>
-                    <li class="breadcrumb-item">
-                        <button class="btn btn-link p-0" @onclick='() => Navigation.NavigateTo("/deployments")'>
-                            Deployments
-                        </button>
-                    </li>
                     <li class="breadcrumb-item active" aria-current="page">@Repository</li>
                 </ol>
             </nav>
@@ -140,8 +135,8 @@
             </div>
         </div>
 
-        <!-- Approval Section for Pending Deployments -->
-        @if (IsPendingApproval())
+        <!-- Enhanced Approval Section -->
+        @if (HasPendingApprovals())
         {
             <div class="row mb-4">
                 <div class="col-12">
@@ -149,44 +144,186 @@
                         <div class="card-header bg-warning text-dark">
                             <h5 class="mb-0">
                                 <i class="oi oi-shield me-2"></i>
-                                Deployment Approval Required
+                                Deployment Approvals Required
                             </h5>
                         </div>
                         <div class="card-body">
-                            <div class="row">
-                                <div class="col-md-8">
-                                    <p class="mb-3">
-                                        <strong>Environment:</strong> @deployment.Environment<br />
-                                        <strong>Workflow:</strong> @deployment.WorkflowDisplayName<br />
-                                        <strong>Requested by:</strong> @deployment.CreatorLogin<br />
-                                        <strong>Status:</strong> <span class="badge bg-warning">Pending Approval</span>
-                                    </p>
-                                    
-                                    @if (!string.IsNullOrEmpty(approvalComment))
+                            @foreach (var envApproval in pendingApprovals.OrderBy(e => e.Environment))
+                            {
+                                <div class="mb-4 pb-4 @(envApproval != pendingApprovals.Last() ? "border-bottom" : "")">
+                                    <h6 class="mb-3">
+                                        <span class="badge bg-info me-2">@envApproval.Environment</span>
+                                        Environment Approvals
+                                    </h6>
+
+                                    @* Environment Reviewer Approvals *@
+                                    @if (envApproval.ReviewerApprovals.Any())
                                     {
-                                        <div class="alert alert-info">
-                                            <strong>Approval Comment:</strong><br />
-                                            @approvalComment
+                                        foreach (var reviewerApproval in envApproval.ReviewerApprovals)
+                                        {
+                                            <div class="card mb-3">
+                                                <div class="card-header bg-light">
+                                                    <div class="d-flex justify-content-between align-items-center">
+                                                        <div>
+                                                            <i class="oi oi-people me-2"></i>
+                                                            <strong>Environment Reviewers</strong>
+                                                        </div>
+                                                        <small class="text-muted">
+                                                            Requested: @reviewerApproval.RequestedAt.ToString("yyyy-MM-dd HH:mm")
+                                                        </small>
+                                                    </div>
+                                                </div>
+                                                <div class="card-body">
+                                                    <div class="row">
+                                                        <div class="col-md-8">
+                                                            @if (!string.IsNullOrEmpty(reviewerApproval.Description))
+                                                            {
+                                                                <p class="mb-3">
+                                                                    <i class="oi oi-info me-2 text-muted"></i>
+                                                                    @reviewerApproval.Description
+                                                                </p>
+                                                            }
+
+                                                            @* Pending Reviewers *@
+                                                            @if (reviewerApproval.PendingReviewers.Any())
+                                                            {
+                                                                <div class="mb-3">
+                                                                    <strong class="text-warning">
+                                                                        <i class="oi oi-clock me-1"></i>
+                                                                        Awaiting Review From:
+                                                                    </strong>
+                                                                    <div class="mt-2">
+                                                                        @foreach (var reviewer in reviewerApproval.PendingReviewers)
+                                                                        {
+                                                                            <span class="badge bg-warning text-dark me-2 mb-1">
+                                                                                <i class="oi oi-person me-1"></i>@reviewer
+                                                                            </span>
+                                                                        }
+                                                                    </div>
+                                                                </div>
+                                                            }
+
+                                                            @* Approved Reviewers *@
+                                                            @if (reviewerApproval.Responses.Any())
+                                                            {
+                                                                <div class="mb-2">
+                                                                    <strong class="text-muted">Review History:</strong>
+                                                                    <ul class="list-unstyled mt-2">
+                                                                        @foreach (var response in reviewerApproval.Responses.OrderByDescending(r => r.ApprovedAt))
+                                                                        {
+                                                                            <li class="mb-2">
+                                                                                <span class="badge @GetStateClassForStatus(response.State) me-2">
+                                                                                    @response.State
+                                                                                </span>
+                                                                                <strong>@response.Name</strong>
+                                                                                <small class="text-muted">
+                                                                                    - @response.ApprovedAt.ToString("yyyy-MM-dd HH:mm")
+                                                                                </small>
+                                                                                @if (!string.IsNullOrEmpty(response.Comment))
+                                                                                {
+                                                                                    <br />
+                                                                                    <small class="text-muted ms-4">
+                                                                                        <i class="oi oi-chat me-1"></i>@response.Comment
+                                                                                    </small>
+                                                                                }
+                                                                            </li>
+                                                                        }
+                                                                    </ul>
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                        <div class="col-md-4">
+                                                            @if (reviewerApproval.PendingReviewers.Any())
+                                                            {
+                                                                <div class="d-grid gap-2">
+                                                                    <button class="btn btn-success"
+                                                                            @onclick='() => ShowReviewerApprovalModal(envApproval.Environment, true)'
+                                                                            disabled="@isProcessingApproval">
+                                                                        <i class="oi oi-check me-2"></i>
+                                                                        Approve
+                                                                    </button>
+                                                                    <button class="btn btn-danger"
+                                                                            @onclick='() => ShowReviewerApprovalModal(envApproval.Environment, false)'
+                                                                            disabled="@isProcessingApproval">
+                                                                        <i class="oi oi-x me-2"></i>
+                                                                        Reject
+                                                                    </button>
+                                                                </div>
+                                                            }
+                                                            else
+                                                            {
+                                                                <div class="alert alert-success mb-0">
+                                                                    <i class="oi oi-check me-2"></i>
+                                                                    All reviewers responded
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        }
+                                    }
+
+                                    @* Custom Protection Rule *@
+                                    @if (envApproval.ProtectionRule != null)
+                                    {
+                                        <div class="card mb-3 border-primary">
+                                            <div class="card-header bg-primary text-white">
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <div>
+                                                        <i class="oi oi-shield me-2"></i>
+                                                        <strong>Custom Protection Rule</strong>
+                                                    </div>
+                                                    <small>
+                                                        Triggered: @envApproval.ProtectionRule.RequestedAt.ToString("yyyy-MM-dd HH:mm")
+                                                    </small>
+                                                </div>
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="row">
+                                                    <div class="col-md-8">
+                                                        <p class="mb-2">
+                                                            <i class="oi oi-info me-2 text-muted"></i>
+                                                            @envApproval.ProtectionRule.Description
+                                                        </p>
+                                                        <p class="mb-2">
+                                                            <strong>Status:</strong>
+                                                            <span class="badge bg-warning text-dark ms-2">
+                                                                @envApproval.ProtectionRule.State
+                                                            </span>
+                                                        </p>
+                                                        @if (!string.IsNullOrEmpty(envApproval.ProtectionRule.CallbackUrl))
+                                                        {
+                                                            <p class="mb-0">
+                                                                <small class="text-muted">
+                                                                    <i class="oi oi-link-intact me-1"></i>
+                                                                    Callback URL: <code class="text-break">@envApproval.ProtectionRule.CallbackUrl</code>
+                                                                </small>
+                                                            </p>
+                                                        }
+                                                    </div>
+                                                    <div class="col-md-4">
+                                                        <div class="alert alert-info mb-0">
+                                                            <i class="oi oi-info me-2"></i>
+                                                            <small>
+                                                                This protection rule must be approved through the connected GitHub App.
+                                                            </small>
+                                                        </div>
+                                                        @if (!string.IsNullOrEmpty(envApproval.ProtectionRule.CallbackUrl))
+                                                        {
+                                                            <button class="btn btn-outline-primary btn-sm mt-2 w-100"
+                                                                    @onclick='() => OpenProtectionRuleCallback(envApproval.ProtectionRule.CallbackUrl)'>
+                                                                <i class="oi oi-external-link me-1"></i>
+                                                                View in GitHub
+                                                            </button>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     }
                                 </div>
-                                <div class="col-md-4">
-                                    <div class="d-grid gap-2">
-                                        <button class="btn btn-success btn-lg" @onclick="() => ShowApprovalModal(true)" disabled="@isProcessingApproval">
-                                            <i class="oi oi-check me-2"></i>
-                                            @if (isProcessingApproval)
-                                            {
-                                                <span class="spinner-border spinner-border-sm me-2"></span>
-                                            }
-                                            Approve Deployment
-                                        </button>
-                                        <button class="btn btn-danger btn-lg" @onclick="() => ShowApprovalModal(false)" disabled="@isProcessingApproval">
-                                            <i class="oi oi-x me-2"></i>
-                                            Reject Deployment
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
+                            }
                         </div>
                     </div>
                 </div>
@@ -309,7 +446,7 @@
                                     </small>
                                 </div>
                                 <div>
-                                    <button class="btn btn-outline-primary" 
+                                    <button class="btn btn-outline-primary"
                                             @onclick="() => NavigateToRelated()">
                                         <i class="oi oi-eye me-1"></i>
                                         View Details
@@ -372,7 +509,7 @@
                                             <tr>
                                                 <td>
                                                     <div class="text-truncate" style="max-width: 300px;" title="@job.name">
-                                                    @job.name
+                                                        @job.name
                                                     </div>
                                                 </td>
                                                 <td>
@@ -417,7 +554,7 @@
                 }
 
                 <!-- Environment Status History -->
-               @if (!string.IsNullOrEmpty(deployment.StatusHistory))
+                @if (!string.IsNullOrEmpty(deployment.StatusHistory))
                 {
                     <div class="card mb-4">
                         <div class="card-header">
@@ -434,6 +571,7 @@
                                 <table class="table table-sm">
                                     <thead>
                                         <tr>
+                                            <th>Type</th>
                                             <th>Environment</th>
                                             <th>Status</th>
                                             <th>Creator</th>
@@ -446,6 +584,11 @@
                                         @foreach (var status in statusItems.OrderByDescending(s => s.UpdatedAtDateTime))
                                         {
                                             <tr>
+                                                <td>
+                                                    <span class="badge @GetTypeClass(status.Type)">
+                                                        @GetTypeDisplay(status.Type)
+                                                    </span>
+                                                </td>
                                                 <td><span class="badge bg-info">@status.Environment</span></td>
                                                 <td><span class="badge @GetStateClassForStatus(status.State)">@status.State</span></td>
                                                 <td>@status.Creator</td>
@@ -454,6 +597,14 @@
                                                     @if (!string.IsNullOrEmpty(status.Description))
                                                     {
                                                         <small class="text-muted">@status.Description</small>
+                                                    }
+                                                    else if (status.ReviewersNames?.Any() == true)
+                                                    {
+                                                        <small class="text-muted">Reviewers: @string.Join(", ", status.ReviewersNames)</small>
+                                                    }
+                                                    else if (!string.IsNullOrEmpty(status.Comment))
+                                                    {
+                                                        <small class="text-muted">@status.Comment</small>
                                                     }
                                                     else
                                                     {
@@ -465,6 +616,12 @@
                                                     {
                                                         <a href="@status.LogUrl" target="_blank" class="btn btn-sm btn-outline-primary">
                                                             <i class="oi oi-external-link me-1"></i>Logs
+                                                        </a>
+                                                    }
+                                                    else if (!string.IsNullOrEmpty(status.CallbackUrl))
+                                                    {
+                                                        <a href="@status.CallbackUrl" target="_blank" class="btn btn-sm btn-outline-primary">
+                                                            <i class="oi oi-external-link me-1"></i>Callback
                                                         </a>
                                                     }
                                                 </td>
@@ -493,9 +650,15 @@
                             }
                             <div class="table-responsive">
                                 <table class="table table-sm">
-                                    <thead><tr>
-                                        <th>Environment</th><th>Creator</th><th>Branch/Ref</th><th>Created</th><th>Updated</th>
-                                    </tr></thead>
+                                    <thead>
+                                        <tr>
+                                            <th>Environment</th>
+                                            <th>Creator</th>
+                                            <th>Branch/Ref</th>
+                                            <th>Created</th>
+                                            <th>Updated</th>
+                                        </tr>
+                                    </thead>
                                     <tbody>
                                         @foreach (var info in historyItems)
                                         {
@@ -604,19 +767,22 @@
                 <div class="modal-body">
                     <div class="mb-3">
                         <strong>Repository:</strong> @deployment.Repository<br />
-                        <strong>Environment:</strong> @deployment.Environment<br />
+                        <strong>Environment:</strong> <span class="badge bg-info">@currentApprovalEnvironment</span><br />
                         <strong>Workflow:</strong> @deployment.WorkflowDisplayName<br />
                         <strong>Requested by:</strong> @deployment.CreatorLogin
                     </div>
 
                     <div class="mb-3">
-                        <label for="approverName" class="form-label">Your Name/Username:</label>
-                        <input type="text" class="form-control" id="approverName" @bind="approverName" 
+                        <label for="approverName" class="form-label">
+                            Your Name/Username: <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" class="form-control" id="approverName" @bind="approverName"
                                placeholder="Enter your name or username" />
+                        <small class="text-muted">Must match one of the pending reviewers</small>
                     </div>
 
                     <div class="mb-3">
-                        <label for="approvalCommentInput" class="form-label">Comment (Optional):</label>
+                        <label for="approvalCommentInput" class="form-label">Comment:</label>
                         <textarea class="form-control" id="approvalCommentInput" rows="3" @bind="approvalCommentInput"
                                   placeholder="@(isApproving ? "Add approval notes..." : "Provide rejection reason...")"></textarea>
                     </div>
@@ -633,9 +799,9 @@
                     <button type="button" class="btn btn-secondary" @onclick="HideApprovalModal" disabled="@isProcessingApproval">
                         Cancel
                     </button>
-                    <button type="button" 
-                            class="btn @(isApproving ? "btn-success" : "btn-danger")" 
-                            @onclick="ProcessApproval" 
+                    <button type="button"
+                            class="btn @(isApproving ? "btn-success" : "btn-danger")"
+                            @onclick="ProcessReviewerApproval"
                             disabled="@(isProcessingApproval || string.IsNullOrWhiteSpace(approverName))">
                         @if (isProcessingApproval)
                         {
@@ -671,14 +837,50 @@
     private bool isApproving = false;
     private bool isProcessingApproval = false;
     private string approverName = "";
-    private string approvalComment = "";
+    private string currentApprovalEnvironment = "";
     private string approvalCommentInput = "";
     private string approvalError = "";
+
+    // Enhanced approval tracking
+    private List<EnvironmentApprovalInfo> pendingApprovals = new();
+
+    // Helper classes for approval tracking
+    public class EnvironmentApprovalInfo
+    {
+        public string Environment { get; set; }
+        public List<ReviewerApproval> ReviewerApprovals { get; set; } = new();
+        public ProtectionRuleApproval ProtectionRule { get; set; }
+    }
+
+    public class ReviewerApproval
+    {
+        public string Description { get; set; }
+        public List<string> PendingReviewers { get; set; } = new();
+        public List<ApproverInfo> Responses { get; set; } = new();
+        public DateTime RequestedAt { get; set; }
+    }
+
+    public class ApproverInfo
+    {
+        public string Name { get; set; }
+        public string State { get; set; }
+        public string Comment { get; set; }
+        public DateTime ApprovedAt { get; set; }
+    }
+
+    public class ProtectionRuleApproval
+    {
+        public string Description { get; set; }
+        public string CallbackUrl { get; set; }
+        public string State { get; set; }
+        public DateTime RequestedAt { get; set; }
+    }
 
     protected override async Task OnInitializedAsync()
     {
         await LoadDeployment();
         await LoadRelatedDeployment();
+        ProcessApprovalRequests();
     }
 
     private async Task LoadDeployment()
@@ -687,29 +889,14 @@
         try
         {
             deployment = await StorageService.GetDeploymentAsync(Repository, DeploymentId);
-            
-            // Load approval comment if it exists in status history
-            if (deployment != null && !string.IsNullOrEmpty(deployment.StatusHistory))
-            {
-                var statusItems = ParseStatusHistory(deployment.StatusHistory);
-                var latestApproval = statusItems
-                    .Where(s => !string.IsNullOrEmpty(s.Description))
-                    .OrderByDescending(s => s.UpdatedAtDateTime)
-                    .FirstOrDefault();
-                
-                if (latestApproval != null)
-                {
-                    approvalComment = latestApproval.Description;
-                }
-            }
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error loading deployment: {ex.Message}");
         }
-        finally 
-        { 
-            isLoading = false; 
+        finally
+        {
+            isLoading = false;
         }
     }
 
@@ -722,7 +909,6 @@
             var workflowRunId = GetWorkflowRunIdFromRowKey(deployment.RowKey);
             if (!string.IsNullOrEmpty(workflowRunId))
             {
-                // If this is a protection rule entry, get the deployment entry, and vice versa
                 bool getProtectionRule = !IsProtectionRuleEntry();
                 relatedDeployment = await StorageService.GetRelatedDeploymentAsync(Repository, workflowRunId, getProtectionRule);
             }
@@ -733,41 +919,114 @@
         }
     }
 
-    private bool IsProtectionRuleEntry()
+    private void ProcessApprovalRequests()
     {
-        return deployment?.RowKey?.Contains("_protection_rule") == true;
+        if (deployment == null || string.IsNullOrEmpty(deployment.StatusHistory))
+            return;
+
+        var statusItems = ParseStatusHistory(deployment.StatusHistory);
+        var envGroups = statusItems.GroupBy(s => s.Environment);
+
+        pendingApprovals = new List<EnvironmentApprovalInfo>();
+
+        foreach (var envGroup in envGroups)
+        {
+            var envInfo = new EnvironmentApprovalInfo { Environment = envGroup.Key };
+
+            // Process review requests
+            var reviewRequests = envGroup
+                .Where(s => s.Type == "ReviewRequest")
+                .OrderByDescending(s => s.UpdatedAtDateTime)
+                .ToList();
+
+            var approverResponses = envGroup
+                .Where(s => s.Type == "ApproverResponse")
+                .OrderByDescending(s => s.UpdatedAtDateTime)
+                .ToList();
+
+            foreach (var request in reviewRequests)
+            {
+                if (request.State?.ToLower() != "pending") continue;
+
+                var reviewerApproval = new ReviewerApproval
+                {
+                    Description = request.Description,
+                    RequestedAt = request.UpdatedAtDateTime ?? DateTime.UtcNow,
+                    PendingReviewers = new List<string>(request.ReviewersNames ?? new List<string>())
+                };
+
+                // Match responses to this request
+                foreach (var response in approverResponses)
+                {
+                    if (response.UpdatedAtDateTime >= request.UpdatedAtDateTime)
+                    {
+                        reviewerApproval.Responses.Add(new ApproverInfo
+                        {
+                            Name = response.ApproverName,
+                            State = response.State,
+                            Comment = response.Comment,
+                            ApprovedAt = response.UpdatedAtDateTime ?? DateTime.UtcNow
+                        });
+
+                        reviewerApproval.PendingReviewers.Remove(response.ApproverName);
+                    }
+                }
+
+                if (reviewerApproval.PendingReviewers.Any() || reviewerApproval.Responses.Any())
+                {
+                    envInfo.ReviewerApprovals.Add(reviewerApproval);
+                }
+            }
+
+            // Process protection rule requests
+            var protectionRule = envGroup
+                .Where(s => s.Type == "ProtectionRuleRequest" && s.State?.ToLower() == "pending")
+                .OrderByDescending(s => s.UpdatedAtDateTime)
+                .FirstOrDefault();
+
+            if (protectionRule != null)
+            {
+                envInfo.ProtectionRule = new ProtectionRuleApproval
+                {
+                    Description = protectionRule.Description,
+                    CallbackUrl = protectionRule.CallbackUrl,
+                    State = protectionRule.State,
+                    RequestedAt = protectionRule.UpdatedAtDateTime ?? DateTime.UtcNow
+                };
+            }
+
+            if (envInfo.ReviewerApprovals.Any() || envInfo.ProtectionRule != null)
+            {
+                pendingApprovals.Add(envInfo);
+            }
+        }
     }
 
-    private bool IsPendingApproval()
-    {
-        if (deployment == null) return false;
-        
-        var status = deployment.StatusCategory.ToLower();
-        return status == "pending" || 
-               status == "waiting" || 
-               deployment.State.ToLower().Contains("pending") ||
-               deployment.State.ToLower().Contains("waiting");
-    }
+    private bool HasPendingApprovals() => pendingApprovals.Any();
+
+    private bool IsProtectionRuleEntry() => deployment?.RowKey?.Contains("_protection_rule") == true;
 
     private string GetWorkflowRunIdFromRowKey(string rowKey)
     {
         if (string.IsNullOrEmpty(rowKey)) return null;
-        
+
         if (rowKey.Contains("_deployment"))
             return rowKey.Replace("_deployment", "");
-        
+
         if (rowKey.Contains("_protection_rule"))
             return rowKey.Replace("_protection_rule", "");
-        
+
         return rowKey;
     }
 
-    private void ShowApprovalModal(bool approve)
+    private void ShowReviewerApprovalModal(string environment, bool approve)
     {
+        currentApprovalEnvironment = environment;
         isApproving = approve;
         showApprovalModal = true;
         approvalError = "";
         approvalCommentInput = "";
+        approverName = "";
     }
 
     private void HideApprovalModal()
@@ -776,13 +1035,31 @@
         approvalError = "";
         approvalCommentInput = "";
         approverName = "";
+        currentApprovalEnvironment = "";
     }
 
-    private async Task ProcessApproval()
+    private async Task ProcessReviewerApproval()
     {
         if (string.IsNullOrWhiteSpace(approverName))
         {
             approvalError = "Please enter your name or username.";
+            return;
+        }
+
+        var envApproval = pendingApprovals.FirstOrDefault(e => e.Environment == currentApprovalEnvironment);
+        if (envApproval == null)
+        {
+            approvalError = "Environment approval not found.";
+            return;
+        }
+
+        var hasReviewerApproval = envApproval.ReviewerApprovals
+            .Any(ra => ra.PendingReviewers.Any(pr =>
+                pr.Equals(approverName, StringComparison.OrdinalIgnoreCase)));
+
+        if (!hasReviewerApproval)
+        {
+            approvalError = $"'{approverName}' is not in the list of pending reviewers for this environment.";
             return;
         }
 
@@ -792,31 +1069,26 @@
         try
         {
             var newStatus = isApproving ? "approved" : "rejected";
-            var comment = string.IsNullOrWhiteSpace(approvalCommentInput) 
-                ? (isApproving ? "Deployment approved" : "Deployment rejected")
-                : approvalCommentInput;
 
-            // Create new status history entry
-            var statusUpdate = new StatusHistoryItem
+            var approverResponse = new StatusHistoryItem
             {
+                Type = "ApproverResponse",
+                ApproverName = approverName,
                 Creator = approverName,
                 State = newStatus,
-                Description = comment,
-                Environment = deployment.Environment,
-                LogUrl = deployment.WorkflowRunUrl,
-                UpdatedAt = JsonSerializer.SerializeToElement(DateTimeOffset.UtcNow.ToString("O")).ToString()
+                Comment = approvalCommentInput ?? "",
+                Environment = currentApprovalEnvironment,
+                UpdatedAt = DateTimeOffset.UtcNow.ToString("O")
             };
 
-            // Update the deployment status
-            await UpdateDeploymentStatus(newStatus, statusUpdate);
+            await AddStatusHistoryEntry(approverResponse);
 
-            // Show success message
-            await JSRuntime.InvokeVoidAsync("alert", 
-                $"Deployment {(isApproving ? "approved" : "rejected")} successfully!");
+            await JSRuntime.InvokeVoidAsync("alert",
+                $"Deployment {(isApproving ? "approved" : "rejected")} successfully by {approverName}!");
 
-            // Reload the deployment to show updated status
             await LoadDeployment();
-            
+            ProcessApprovalRequests();
+
             HideApprovalModal();
         }
         catch (Exception ex)
@@ -830,45 +1102,77 @@
         }
     }
 
-    private async Task UpdateDeploymentStatus(string newStatus, StatusHistoryItem statusUpdate)
+    private async Task AddStatusHistoryEntry(StatusHistoryItem newEntry)
     {
         try
         {
-            // Use the actual service method to update the deployment status
+            var statusItems = new List<StatusHistoryItem>();
+            if (!string.IsNullOrEmpty(deployment.StatusHistory))
+            {
+                try
+                {
+                    var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                    var existing = JsonSerializer.Deserialize<StatusHistoryItem[]>(deployment.StatusHistory, options);
+                    if (existing != null)
+                        statusItems.AddRange(existing);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error parsing existing status history: {ex.Message}");
+                }
+            }
+
+            statusItems.Add(newEntry);
+            var updatedHistory = JsonSerializer.Serialize(statusItems);
+
             var success = await StorageService.UpdateDeploymentStatusAsync(
-                Repository, 
-                DeploymentId, 
-                newStatus, 
-                statusUpdate.Creator, 
-                statusUpdate.Description);
+                Repository,
+                DeploymentId,
+                newEntry.State,
+                newEntry.Creator,
+                newEntry.Comment);
 
             if (!success)
             {
                 throw new Exception("Failed to update deployment status in storage");
             }
 
-            // Update local deployment object for UI
-            var statusItems = new List<StatusHistoryItem>();
-            if (!string.IsNullOrEmpty(deployment.StatusHistory))
-            {
-                try
-                {
-                    var existing = JsonSerializer.Deserialize<StatusHistoryItem[]>(deployment.StatusHistory);
-                    if (existing != null)
-                        statusItems.AddRange(existing);
-                }
-                catch { }
-            }
-
-            statusItems.Add(statusUpdate);
-            deployment.CurrentStatus = newStatus;
-            deployment.StatusHistory = JsonSerializer.Serialize(statusItems);
-            deployment.LastStatusUpdate = JsonSerializer.SerializeToElement(DateTimeOffset.UtcNow.ToString("O")).ToString();
+            deployment.StatusHistory = updatedHistory;
+            await CheckAndUpdateOverallStatus();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error updating deployment status: {ex.Message}");
+            Console.WriteLine($"Error adding status history entry: {ex.Message}");
             throw;
+        }
+    }
+
+    private async Task CheckAndUpdateOverallStatus()
+    {
+        ProcessApprovalRequests();
+
+        if (!pendingApprovals.Any())
+        {
+            var allApproved = ParseStatusHistory(deployment.StatusHistory)
+                .Where(s => s.Type == "ApproverResponse")
+                .All(s => s.State?.ToLower() == "approved");
+
+            var newStatus = allApproved ? "approved" : "rejected";
+
+            await StorageService.UpdateDeploymentStatusAsync(
+                Repository,
+                DeploymentId,
+                newStatus,
+                "System",
+                "All required approvals completed");
+        }
+    }
+
+    private async Task OpenProtectionRuleCallback(string callbackUrl)
+    {
+        if (!string.IsNullOrEmpty(callbackUrl))
+        {
+            await JSRuntime.InvokeVoidAsync("open", callbackUrl, "_blank");
         }
     }
 
@@ -928,6 +1232,22 @@
         _ => "bg-warning"
     };
 
+    private string GetTypeClass(string type) => type switch
+    {
+        "ReviewRequest" => "bg-warning text-dark",
+        "ApproverResponse" => "bg-success",
+        "ProtectionRuleRequest" => "bg-primary",
+        _ => "bg-secondary"
+    };
+
+    private string GetTypeDisplay(string type) => type switch
+    {
+        "ReviewRequest" => "Review",
+        "ApproverResponse" => "Response",
+        "ProtectionRuleRequest" => "Protection Rule",
+        _ => type
+    };
+
     private List<JobInfo> ParseJobHistory(string jobHistoryJson)
     {
         if (string.IsNullOrWhiteSpace(jobHistoryJson))
@@ -951,14 +1271,12 @@
 
         try
         {
-            // Add case-insensitive options to match other parts of your code
             var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
             var items = JsonSerializer.Deserialize<StatusHistoryItem[]>(statusHistoryJson, options);
             return items?.ToList() ?? new List<StatusHistoryItem>();
         }
         catch (JsonException ex)
         {
-            // Add logging to see what's failing
             Console.WriteLine($"Error parsing status history JSON: {ex.Message}");
             Console.WriteLine($"JSON content: {statusHistoryJson}");
             return new List<StatusHistoryItem>();

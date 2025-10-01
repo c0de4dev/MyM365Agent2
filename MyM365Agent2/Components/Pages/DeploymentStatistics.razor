@@ -311,10 +311,11 @@
         isLoading = true;
         try
         {
-            statistics      = await StorageService.GetDeploymentStatisticsAsync();
+            // OPTIMIZED: Use time-filtered statistics
+            statistics = await StorageService.GetDeploymentStatisticsAsync(daysBack: 7);
             environmentStats = await StorageService.GetEnvironmentStatisticsAsync();
-            repositoryStats  = await StorageService.GetRepositoryStatisticsAsync();
-            
+            repositoryStats = await StorageService.GetRepositoryStatisticsAsync();
+
             // Calculate job performance metrics
             await CalculateJobMetrics();
         }
@@ -341,9 +342,10 @@
     {
         try
         {
-            var allDeployments = await StorageService.GetDeploymentsAsync();
+            var allDeployments = await StorageService.GetDeploymentsAsync(repository: null, daysBack: 7);
             var deploymentsWithJobs = allDeployments.Where(d => !string.IsNullOrEmpty(d.JobHistory)).ToList();
-            
+
+
             if (deploymentsWithJobs.Any())
             {
                 var jobSummaries = deploymentsWithJobs.Select(d => d.GetJobSummary()).ToList();

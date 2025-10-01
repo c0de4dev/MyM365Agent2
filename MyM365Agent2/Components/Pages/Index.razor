@@ -40,9 +40,9 @@
     }
     else
     {
-        <!-- Filters -->
-        <div class="row mb-4">
-            <div class="col-md-8">
+        <!-- Filters Row 1: Repository and Environment -->
+        <div class="row mb-3">
+            <div class="col-12">
                 <div class="card">
                     <div class="card-body">
                         <div class="row align-items-center">
@@ -70,27 +70,82 @@
                     </div>
                 </div>
             </div>
-            <div class="col-md-4">
+        </div>
+
+        <!-- Filters Row 2: Status Filter and Search -->
+        <div class="row mb-4">
+            <div class="col-md-7">
                 <div class="card">
                     <div class="card-body">
                         <label class="form-label fw-bold">Status Filter</label>
                         <div class="btn-group w-100" role="group">
-                            <button class="btn @(statusFilter == "" ? "btn-primary" : "btn-outline-primary") btn-sm"
+                            <button class="btn @(statusFilter == "" ? "btn-primary" : "btn-outline-primary")"
                                     @onclick="@(() => SetStatusFilter(""))">
-                                All
+                                All (@GetTotalCount())
                             </button>
-                            <button class="btn @(statusFilter == "in_progress" ? "btn-info" : "btn-outline-info") btn-sm"
-                                    @onclick="@(() => SetStatusFilter("in_progress"))">
-                                Running
+                            <button class="btn @(statusFilter == "success" ? "btn-success" : "btn-outline-success")"
+                                    @onclick="@(() => SetStatusFilter("success"))">
+                                Success (@GetStatusCount("success"))
                             </button>
-                            <button class="btn @(statusFilter == "pending" ? "btn-warning" : "btn-outline-warning") btn-sm"
-                                    @onclick="@(() => SetStatusFilter("pending"))">
-                                Pending
-                            </button>
-                            <button class="btn @(statusFilter == "failure" ? "btn-danger" : "btn-outline-danger") btn-sm"
+                            <button class="btn @(statusFilter == "failure" ? "btn-danger" : "btn-outline-danger")"
                                     @onclick="@(() => SetStatusFilter("failure"))">
-                                Failed
+                                Failed (@GetStatusCount("failure"))
                             </button>
+                            <button class="btn @(statusFilter == "pending" ? "btn-warning" : "btn-outline-warning")"
+                                    @onclick="@(() => SetStatusFilter("pending"))">
+                                Active (@GetStatusCount("pending"))
+                            </button>
+                            <button class="btn @(statusFilter == "in_progress" ? "btn-info" : "btn-outline-info")"
+                                    @onclick="@(() => SetStatusFilter("in_progress"))">
+                                Running (@GetStatusCount("in_progress"))
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-5">
+                <div class="card">
+                    <div class="card-body">
+                        <label class="form-label fw-bold">Search</label>
+                        <div class="input-group">
+                            <span class="input-group-text">
+                                <i class="oi oi-magnifying-glass"></i>
+                            </span>
+                            <input type="text" class="form-control"
+                                   placeholder="Search workflows, branches, creators..."
+                                   @bind="searchTerm" @onkeyup="OnSearchChanged" />
+                            @if (!string.IsNullOrEmpty(searchTerm))
+                            {
+                                <button class="btn btn-outline-secondary" @onclick="ClearSearch">
+                                    <i class="oi oi-x"></i>
+                                </button>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sort By Row -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <label class="form-label fw-bold mb-1">Sort By</label>
+                                <select class="form-select" @onchange="OnSortChanged" value="@($"{sortField}_{(sortAscending ? "asc" : "desc")}")">
+                                    <option value="CreatedAt_desc">Latest First</option>
+                                    <option value="CreatedAt_asc">Oldest First</option>
+                                    <option value="Repository_asc">Repository A-Z</option>
+                                    <option value="Repository_desc">Repository Z-A</option>
+                                    <option value="Status_asc">Status</option>
+                                </select>
+                            </div>
+                            <div class="text-end">
+                                <small class="text-muted d-block mb-1">Results</small>
+                                <strong>@Math.Min(50, displayedDeployments.Count) of @displayedDeployments.Count</strong>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -98,7 +153,7 @@
         </div>
 
         <!-- Active Filters Display -->
-        @if (!string.IsNullOrEmpty(selectedRepository) || !string.IsNullOrEmpty(selectedEnvironment) || !string.IsNullOrEmpty(statusFilter))
+        @if (!string.IsNullOrEmpty(selectedRepository) || !string.IsNullOrEmpty(selectedEnvironment) || !string.IsNullOrEmpty(statusFilter) || !string.IsNullOrEmpty(searchTerm))
         {
             <div class="row mb-3">
                 <div class="col-12">
@@ -116,6 +171,10 @@
                             @if (!string.IsNullOrEmpty(statusFilter))
                             {
                                 <span class="badge bg-secondary me-2">Status: @GetStatusDisplayName(statusFilter)</span>
+                            }
+                            @if (!string.IsNullOrEmpty(searchTerm))
+                            {
+                                <span class="badge bg-warning text-dark me-2">Search: "@searchTerm"</span>
                             }
                             <small class="text-muted">(@displayedDeployments.Count results)</small>
                         </div>
@@ -162,14 +221,14 @@
                                                     </div>
                                                     <small class="text-muted">@deployment.CreatedAt.ToString("MMM dd, HH:mm")</small>
                                                 </div>
-                                                
+
                                                 <!-- Status and Info Badges -->
                                                 <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
                                                     <span class="badge @GetStateClass(deployment.StatusCategory) px-2 py-1">
                                                         <i class="oi oi-@GetStateIcon(deployment.StatusCategory) me-1"></i>
                                                         @deployment.DisplayStatus
                                                     </span>
-                                                    
+
                                                     @if (!string.IsNullOrEmpty(deployment.Environment))
                                                     {
                                                         <span class="badge bg-info px-2 py-1">
@@ -177,7 +236,7 @@
                                                             @deployment.Environment
                                                         </span>
                                                     }
-                                                    
+
                                                     @if (!string.IsNullOrEmpty(deployment.Branch))
                                                     {
                                                         <span class="badge bg-secondary px-2 py-1">
@@ -185,7 +244,7 @@
                                                             @deployment.Branch
                                                         </span>
                                                     }
-                                                    
+
                                                     @if (!string.IsNullOrEmpty(deployment.RunNumberDisplay) && deployment.RunNumberDisplay != "N/A")
                                                     {
                                                         <span class="badge bg-light text-dark px-2 py-1">
@@ -193,14 +252,14 @@
                                                         </span>
                                                     }
                                                 </div>
-                                                
+
                                                 <!-- Additional Info -->
                                                 <div class="d-flex flex-wrap align-items-center gap-3 text-muted small">
                                                     <span>
                                                         <i class="oi oi-person me-1"></i>
                                                         @deployment.CreatorLogin
                                                     </span>
-                                                    
+
                                                     @if (!string.IsNullOrEmpty(deployment.FormattedDuration))
                                                     {
                                                         <span>
@@ -208,7 +267,7 @@
                                                             @deployment.FormattedDuration
                                                         </span>
                                                     }
-                                                    
+
                                                     @if (!string.IsNullOrEmpty(deployment.TriggerType))
                                                     {
                                                         <span>
@@ -218,12 +277,12 @@
                                                     }
                                                 </div>
                                             </div>
-                                            
+
                                             <!-- Action Buttons -->
                                             <div class="ms-3 d-flex flex-column gap-1">
                                                 @if (!string.IsNullOrEmpty(deployment.WorkflowRunUrl))
                                                 {
-                                                    <a href="@deployment.WorkflowRunUrl" target="_blank" 
+                                                    <a href="@deployment.WorkflowRunUrl" target="_blank"
                                                        class="btn btn-sm btn-outline-primary">
                                                         <i class="oi oi-external-link me-1"></i>
                                                         GitHub
@@ -239,7 +298,7 @@
                                     </div>
                                 }
                             </div>
-                            
+
                             @if (displayedDeployments.Count > 50)
                             {
                                 <div class="card-footer text-center">
@@ -256,7 +315,7 @@
                                 <i class="oi oi-info mb-3 text-muted" style="font-size: 3rem;"></i>
                                 <h5 class="text-muted">No Workflows Found</h5>
                                 <p class="text-muted mb-0">
-                                    @if (!string.IsNullOrEmpty(selectedRepository) || !string.IsNullOrEmpty(selectedEnvironment) || !string.IsNullOrEmpty(statusFilter))
+                                    @if (!string.IsNullOrEmpty(selectedRepository) || !string.IsNullOrEmpty(selectedEnvironment) || !string.IsNullOrEmpty(statusFilter) || !string.IsNullOrEmpty(searchTerm))
                                     {
                                         <text>No workflows match your current filters. Try adjusting your selection.</text>
                                     }
@@ -265,7 +324,7 @@
                                         <text>No GitHub Actions found. Connect your repositories to start monitoring workflows.</text>
                                     }
                                 </p>
-                                @if (!string.IsNullOrEmpty(selectedRepository) || !string.IsNullOrEmpty(selectedEnvironment) || !string.IsNullOrEmpty(statusFilter))
+                                @if (!string.IsNullOrEmpty(selectedRepository) || !string.IsNullOrEmpty(selectedEnvironment) || !string.IsNullOrEmpty(statusFilter) || !string.IsNullOrEmpty(searchTerm))
                                 {
                                     <button class="btn btn-primary mt-3" @onclick="ClearAllFilters">
                                         <i class="oi oi-refresh me-2"></i>
@@ -287,10 +346,13 @@
     private List<DeploymentState> displayedDeployments = new();
     private List<string> availableRepositories = new();
     private List<string> availableEnvironments = new();
-    
+
     private string selectedRepository = "";
     private string selectedEnvironment = "";
     private string statusFilter = "";
+    private string searchTerm = "";
+    private string sortField = "CreatedAt";
+    private bool sortAscending = false;
     private bool isLoading = true;
     private Timer refreshTimer;
 
@@ -306,7 +368,7 @@
         try
         {
             allDeployments = await StorageService.GetDeploymentsAsync();
-            
+
             // Extract available repositories and environments
             availableRepositories = allDeployments
                 .Select(d => d.Repository)
@@ -359,6 +421,29 @@
         await InvokeAsync(StateHasChanged);
     }
 
+    private void OnSearchChanged()
+    {
+        ApplyFilters();
+    }
+
+    private void ClearSearch()
+    {
+        searchTerm = "";
+        ApplyFilters();
+    }
+
+    private void OnSortChanged(ChangeEventArgs e)
+    {
+        var sortValue = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(sortValue))
+        {
+            var parts = sortValue.Split('_');
+            sortField = parts[0];
+            sortAscending = parts[1] == "asc";
+            ApplyFilters();
+        }
+    }
+
     private void ApplyFilters()
     {
         filteredDeployments = allDeployments.ToList();
@@ -375,27 +460,60 @@
             filteredDeployments = filteredDeployments.Where(d => d.Environment == selectedEnvironment).ToList();
         }
 
-        ApplyStatusFilter();
-    }
-
-    private void ApplyStatusFilter()
-    {
-        displayedDeployments = filteredDeployments.ToList();
-
         // Status filter
         if (!string.IsNullOrEmpty(statusFilter))
         {
-            displayedDeployments = displayedDeployments.Where(d => d.StatusCategory == statusFilter).ToList();
+            if (statusFilter == "pending")
+            {
+                filteredDeployments = filteredDeployments.Where(d =>
+                    d.StatusCategory == "pending" || d.StatusCategory == "in_progress").ToList();
+            }
+            else
+            {
+                filteredDeployments = filteredDeployments.Where(d => d.StatusCategory == statusFilter).ToList();
+            }
         }
 
-        // Always sort by creation date (newest first)
-        displayedDeployments = displayedDeployments.OrderByDescending(d => d.CreatedAt).ToList();
+        // Search filter
+        if (!string.IsNullOrEmpty(searchTerm))
+        {
+            var searchLower = searchTerm.ToLower();
+            filteredDeployments = filteredDeployments.Where(d =>
+                (d.Repository?.ToLower().Contains(searchLower) ?? false) ||
+                (d.WorkflowDisplayName?.ToLower().Contains(searchLower) ?? false) ||
+                (d.Branch?.ToLower().Contains(searchLower) ?? false) ||
+                (d.CreatorLogin?.ToLower().Contains(searchLower) ?? false) ||
+                (d.Environment?.ToLower().Contains(searchLower) ?? false)
+            ).ToList();
+        }
+
+        ApplySort();
+    }
+
+    private void ApplySort()
+    {
+        displayedDeployments = sortField switch
+        {
+            "Repository" => sortAscending
+                ? filteredDeployments.OrderBy(d => d.Repository).ToList()
+                : filteredDeployments.OrderByDescending(d => d.Repository).ToList(),
+            "Environment" => sortAscending
+                ? filteredDeployments.OrderBy(d => d.Environment).ToList()
+                : filteredDeployments.OrderByDescending(d => d.Environment).ToList(),
+            "Status" => sortAscending
+                ? filteredDeployments.OrderBy(d => d.StatusCategory).ToList()
+                : filteredDeployments.OrderByDescending(d => d.StatusCategory).ToList(),
+            "CreatedAt" => sortAscending
+                ? filteredDeployments.OrderBy(d => d.CreatedAt).ToList()
+                : filteredDeployments.OrderByDescending(d => d.CreatedAt).ToList(),
+            _ => filteredDeployments.OrderByDescending(d => d.CreatedAt).ToList()
+        };
     }
 
     private void SetStatusFilter(string filter)
     {
         statusFilter = filter;
-        ApplyStatusFilter();
+        ApplyFilters();
     }
 
     private void ClearAllFilters()
@@ -403,6 +521,7 @@
         selectedRepository = "";
         selectedEnvironment = "";
         statusFilter = "";
+        searchTerm = "";
         ApplyFilters();
     }
 
@@ -413,9 +532,17 @@
 
     private void LoadMoreDeployments()
     {
-        // This could be implemented to show more than 50 results
-        // For now, navigate to the full deployments page
+        // Navigate to the full deployments page
         Navigation.NavigateTo("/deployments");
+    }
+
+    private int GetTotalCount() => filteredDeployments.Count;
+
+    private int GetStatusCount(string status)
+    {
+        if (status == "pending")
+            return allDeployments.Count(d => d.StatusCategory == "pending" || d.StatusCategory == "in_progress");
+        return allDeployments.Count(d => d.StatusCategory == status);
     }
 
     private string GetStatusDisplayName(string status)
@@ -423,7 +550,7 @@
         return status switch
         {
             "in_progress" => "Running",
-            "pending" => "Pending",
+            "pending" => "Pending/Active",
             "failure" => "Failed",
             "success" => "Success",
             _ => status

@@ -139,16 +139,19 @@ namespace MyM365Agent2.Services
         }
     }
 
+    // Update your IAzureTableStorageService interface
+
     public interface IAzureTableStorageService
     {
         // Existing methods
-        Task<List<DeploymentState>> GetDeploymentsAsync(string repository = null);
+        Task<List<DeploymentState>> GetDeploymentsAsync(string repository = null, int daysBack = 7);
+
         Task<DeploymentState> GetDeploymentAsync(string repository, string deploymentId);
-        Task<List<DeploymentState>> GetDeploymentsByEnvironmentAsync(string environment);
+        Task<Dictionary<string, int>> GetDeploymentStatisticsAsync(int daysBack = 7);
+        Task<List<DeploymentState>> GetPendingApprovalsByEnvironmentAsync(string environment = null, int daysBack = 30);
         Task<List<DeploymentState>> GetDeploymentsByStateAsync(string state);
         Task<List<DeploymentState>> GetDeploymentsByCreatorAsync(string creator);
         Task<List<DeploymentState>> GetPendingApprovalsAsync();
-        Task<Dictionary<string, int>> GetDeploymentStatisticsAsync();
         Task<Dictionary<string, Dictionary<string, int>>> GetEnvironmentStatisticsAsync();
         Task<Dictionary<string, Dictionary<string, int>>> GetRepositoryStatisticsAsync();
         Task<Dictionary<string, Dictionary<string, int>>> GetCreatorStatisticsAsync();
@@ -169,7 +172,6 @@ namespace MyM365Agent2.Services
         Task<bool> UpdateDeploymentAsync(DeploymentState deployment);
         Task<bool> UpdateDeploymentStatusAsync(string repository, string deploymentId, string newStatus, string approver, string comment = null);
         Task<DeploymentState> GetRelatedDeploymentAsync(string repository, string workflowRunId, bool getProtectionRule = false);
-        Task<List<DeploymentState>> GetPendingApprovalsByEnvironmentAsync(string environment = null);
         Task<bool> ApproveDeploymentAsync(string repository, string deploymentId, string approver, string comment = null);
         Task<bool> RejectDeploymentAsync(string repository, string deploymentId, string approver, string comment = null);
 
@@ -319,6 +321,8 @@ namespace MyM365Agent2.Services
             try
             {
                 var deployments = new List<DeploymentState>();
+                int successCount = 0;
+                int errorCount = 0;
 
                 await foreach (var rawEntity in _tableClient.QueryAsync<RawDeploymentEntity>(filter: filter))
                 {
@@ -326,19 +330,32 @@ namespace MyM365Agent2.Services
                     {
                         var deployment = rawEntity.ToDeploymentState();
                         deployments.Add(deployment);
+                        successCount++;
+                    }
+                    catch (JsonException jsonEx)
+                    {
+                        errorCount++;
+                        _logger.LogWarning(jsonEx,
+                            $"JSON error converting entity RowKey: {rawEntity.RowKey}. " +
+                            $"DeploymentHistory length: {rawEntity.deploymentHistory?.Length ?? 0}, " +
+                            $"JobHistory length: {rawEntity.jobHistory?.Length ?? 0}, " +
+                            $"StatusHistory length: {rawEntity.statusHistory?.Length ?? 0}");
+                        // Continue processing other entities
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, $"Error converting raw entity to deployment state for RowKey: {rawEntity.RowKey}");
+                        errorCount++;
+                        _logger.LogWarning(ex, $"Error converting entity RowKey: {rawEntity.RowKey}");
                     }
                 }
 
-                _logger.LogInformation($"Successfully converted {deployments.Count} raw entities to deployment states");
+                _logger.LogInformation(
+                    $"Successfully converted {successCount} entities, {errorCount} errors");
                 return deployments;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error querying raw entities with filter: {filter}");
+                _logger.LogError(ex, $"Error querying entities with filter: {filter}");
                 throw;
             }
         }
@@ -347,22 +364,28 @@ namespace MyM365Agent2.Services
 
         #region Core Methods
 
-        public async Task<List<DeploymentState>> GetDeploymentsAsync(string repository = null)
+        public async Task<List<DeploymentState>> GetDeploymentsAsync(string repository = null, int daysBack = 7)
         {
             try
             {
-                _logger.LogInformation($"Fetching deployments for repository: {repository ?? "all"}");
+                _logger.LogInformation($"Fetching deployments for repository: {repository ?? "all"} from last {daysBack} days");
 
-                string filter = null;
+                // Calculate the cutoff date - THIS IS THE KEY OPTIMIZATION!
+                var cutoffDate = DateTime.UtcNow.AddDays(-daysBack);
+                var cutoffDateString = cutoffDate.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+
+                // Build filter with time constraint
+                string filter = $"Timestamp ge datetime'{cutoffDateString}'";
+
+                // Add repository filter if specified
                 if (!string.IsNullOrEmpty(repository))
                 {
-                    // Try both PartitionKey and repository field
-                    filter = $"PartitionKey eq '{repository}' or repository eq '{repository}'";
+                    filter += $" and (PartitionKey eq '{repository}' or repository eq '{repository}')";
                 }
 
                 var deployments = await GetDeploymentsFromRawEntitiesAsync(filter);
 
-                _logger.LogInformation($"Retrieved {deployments.Count} deployments");
+                _logger.LogInformation($"Retrieved {deployments.Count} deployments from last {daysBack} days");
                 return deployments.OrderByDescending(d => d.CreatedAt).ToList();
             }
             catch (Exception ex)
@@ -420,42 +443,48 @@ namespace MyM365Agent2.Services
             }
         }
 
-        public async Task<Dictionary<string, int>> GetDeploymentStatisticsAsync()
+        public async Task<Dictionary<string, int>> GetDeploymentStatisticsAsync(int daysBack = 7)
         {
             try
             {
-                _logger.LogInformation("Calculating deployment statistics");
+                _logger.LogInformation($"Calculating deployment statistics for last {daysBack} days");
 
                 var statistics = new Dictionary<string, int>
+        {
+            { "success", 0 },
+            { "failure", 0 },
+            { "pending", 0 },
+            { "in_progress", 0 },
+            { "cancelled", 0 },
+            { "pending_approval", 0 },
+            { "total", 0 }
+        };
+
+                // TIME FILTER - THIS IS THE KEY OPTIMIZATION!
+                var cutoffDate = DateTime.UtcNow.AddDays(-daysBack);
+                var cutoffDateString = cutoffDate.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+                string filter = $"Timestamp ge datetime'{cutoffDateString}'";
+
+                await foreach (var rawEntity in _tableClient.QueryAsync<RawDeploymentEntity>(filter: filter))
                 {
-                    { "success", 0 },
-                    { "failure", 0 },
-                    { "pending", 0 },
-                    { "in_progress", 0 },
-                    { "cancelled", 0 },
-                    { "pending_approval", 0 },
-                    { "total", 0 }
-                };
-
-                var allDeployments = await GetDeploymentsFromRawEntitiesAsync();
-
-                foreach (var deployment in allDeployments)
-                {
-                    statistics["total"]++;
-                    var category = deployment.StatusCategory;
-
-                    if (statistics.ContainsKey(category))
+                    try
                     {
-                        statistics[category]++;
+                        var deployment = rawEntity.ToDeploymentState();
+                        statistics["total"]++;
+                        var category = deployment.StatusCategory;
+
+                        if (statistics.ContainsKey(category))
+                        {
+                            statistics[category]++;
+                        }
                     }
-
-                    if (deployment.HasApprovalWorkflow && deployment.State.ToLower().Contains("pending"))
+                    catch (Exception ex)
                     {
-                        statistics["pending_approval"]++;
+                        _logger.LogWarning(ex, $"Error processing entity for statistics");
                     }
                 }
 
-                _logger.LogInformation($"Calculated statistics for {statistics["total"]} deployments");
+                _logger.LogInformation($"Statistics calculated for {statistics["total"]} deployments");
                 return statistics;
             }
             catch (Exception ex)
@@ -908,27 +937,56 @@ namespace MyM365Agent2.Services
             }
         }
 
-        public async Task<List<DeploymentState>> GetPendingApprovalsByEnvironmentAsync(string environment = null)
+        public async Task<List<DeploymentState>> GetPendingApprovalsByEnvironmentAsync(string environment = null, int daysBack = 30)
         {
             try
             {
                 _logger.LogInformation($"Fetching pending approvals for environment: {environment ?? "all"}");
 
-                var allDeployments = await GetDeploymentsFromRawEntitiesAsync();
+                // TIME FILTER - Approvals can be older, so use 30 days
+                var cutoffDate = DateTime.UtcNow.AddDays(-daysBack);
+                var cutoffDateString = cutoffDate.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+                string filter = $"Timestamp ge datetime'{cutoffDateString}'";
 
-                var pendingApprovals = allDeployments
-                    .Where(d => IsProtectionRuleEntry(d.RowKey))
-                    .Where(d => IsPendingStatus(d.StatusCategory) || IsPendingStatus(d.State))
-                    .Where(d => string.IsNullOrEmpty(environment) || d.Environment.Equals(environment, StringComparison.OrdinalIgnoreCase))
-                    .OrderBy(d => d.CreatedAt)
-                    .ToList();
+                var pendingApprovals = new List<DeploymentState>();
+
+                await foreach (var rawEntity in _tableClient.QueryAsync<RawDeploymentEntity>(filter: filter))
+                {
+                    try
+                    {
+                        // Check if it's a protection rule entry (approval required)
+                        if (!rawEntity.RowKey?.Contains("_protection_rule") == true)
+                            continue;
+
+                        var deployment = rawEntity.ToDeploymentState();
+
+                        // Check if it's actually pending
+                        var status = deployment.StatusCategory.ToLower();
+                        if (status != "pending" && status != "waiting" && !deployment.State.ToLower().Contains("pending"))
+                            continue;
+
+                        // Apply environment filter if specified
+                        if (!string.IsNullOrEmpty(environment) &&
+                            !deployment.Environment.Equals(environment, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        pendingApprovals.Add(deployment);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, $"Error processing pending approval");
+                    }
+                }
 
                 _logger.LogInformation($"Found {pendingApprovals.Count} pending approvals");
-                return pendingApprovals;
+                return pendingApprovals
+                    .OrderBy(d => d.Environment.ToLower() == "production" ? 0 : 1)
+                    .ThenBy(d => d.CreatedAt)
+                    .ToList();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error fetching pending approvals for environment: {environment}");
+                _logger.LogError(ex, "Error fetching pending approvals");
                 throw;
             }
         }

@@ -482,6 +482,7 @@ namespace MyM365Agent2.Common.Models
 
     public class StatusHistoryItem
     {
+        public string Type { get; set; } // ReviewRequest, ApproverResponse, ProtectionRuleRequest
         public string Creator { get; set; }
         public string CreatedAt { get; set; }
         public string Description { get; set; }
@@ -489,6 +490,16 @@ namespace MyM365Agent2.Common.Models
         public string UpdatedAt { get; set; }
         public string LogUrl { get; set; }
         public string Environment { get; set; }
+
+        // ReviewRequest specific
+        public List<string> ReviewersNames { get; set; }
+
+        // ApproverResponse specific
+        public string ApproverName { get; set; }
+        public string Comment { get; set; }
+
+        // ProtectionRuleRequest specific
+        public string CallbackUrl { get; set; }
 
         public DateTime? CreatedAtDateTime => SafeParseDateTime(CreatedAt);
         public DateTime? UpdatedAtDateTime => SafeParseDateTime(UpdatedAt);
@@ -574,5 +585,36 @@ namespace MyM365Agent2.Common.Models
         public DateTime? StartTime { get; set; }
         public DateTime? LastUpdateTime { get; set; }
         public TimeSpan? TotalDuration { get; set; }
+    }
+    // Helper class to group pending approvals by environment
+    public class EnvironmentApprovalInfo
+    {
+        public string Environment { get; set; }
+        public List<ReviewerApproval> ReviewerApprovals { get; set; } = new();
+        public ProtectionRuleApproval ProtectionRule { get; set; }
+    }
+
+    public class ReviewerApproval
+    {
+        public string Description { get; set; }
+        public List<string> PendingReviewers { get; set; } = new();
+        public List<ApproverInfo> Responses { get; set; } = new();
+        public DateTime RequestedAt { get; set; }
+    }
+
+    public class ApproverInfo
+    {
+        public string Name { get; set; }
+        public string State { get; set; }
+        public string Comment { get; set; }
+        public DateTime ApprovedAt { get; set; }
+    }
+
+    public class ProtectionRuleApproval
+    {
+        public string Description { get; set; }
+        public string CallbackUrl { get; set; }
+        public string State { get; set; }
+        public DateTime RequestedAt { get; set; }
     }
 }
