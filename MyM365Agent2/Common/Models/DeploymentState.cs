@@ -531,6 +531,8 @@ namespace MyM365Agent2.Common.Models
         public bool IsApproved => State?.ToLower() == "approved";
         public bool IsRejected => State?.ToLower() == "rejected";
 
+        public string RequestId { get; set; }
+
         public string DisplayType
         {
             get
